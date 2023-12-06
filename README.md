@@ -14,10 +14,10 @@ To get started create a `nocc.c` (can be named anything) file and include `nocc.
 The code is poorly written. It took me two days to write the script. There some bugs with the code, for instance when I run nocc.exe the file will add or remove certain bytes for some reason. I have no idea. So if you do happen to run the code and it doesn't compile a file then try running it again. (Cause if it doesn't work the first time use a hammer and jam until it works)
 
 ## TODO ##
-[ ] Fix the anoying bugs. For which I don't understand what's happening.
-[ ] Add filters because if you build your project and compile it into the same folder, there are going to be compilation issues. Because, i'm just getting everything from the source folder and not filtering it for certain files.
-[ ] Add an actual CLI parser. 
-[ ] Add the ability for nocc to only compile certain files, and not the entire project over again
-    [ ] To do this the easiest (and the only way I know how to) is to differentiate the time from the source and executable. That's how make works, I think.
-[ ] Add the ability to build itself. Rather than recompiling the file.
-[ ] What would be cool, is to implement a -w flag, that watches for a change of any file in the program and recompiles the project. I don't know how cool this would be, but it would certainly be nice when developing a console application, you wouldn't have to type a command to recompile it. This would be annoying especially in big projects when compiling takes minutes.
+* [x] Fix the anoying bugs. For which I don't understand what's happening.
+* [ ] Add filters because if you build your project and compile it into the same folder, there are going to be compilation issues. Because, i'm just getting everything from the source folder and not filtering it for certain files.
+* [ ] Add an actual CLI parser. 
+* [ ] Add the ability for nocc to only compile certain files, and not the entire project over again
+    *-* [ ] To do this the easiest (and the only way I know how to) is to differentiate the time from the source and executable. That's how make works, I think.
+* [ ] Add the ability to build itself. Rather than recompiling the file.
+* [ ] What would be cool, is to implement a -w flag, that watches for a change of any file in the program and recompiles the project. I don't know how cool this would be, but it would certainly be nice when developing a console application, you wouldn't have to type a command to recompile it. This would be annoying especially in big projects when compiling takes minutes.
