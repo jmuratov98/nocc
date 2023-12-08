@@ -23,9 +23,9 @@
 
 // DEFS
 #define NOCC_VERSION_MAJOR      0
-#define NOCC_VERSION_MINOR      1
+#define NOCC_VERSION_MINOR      2
 #define NOCC_VERSION_PATCH      "0-a.0"
-#define NOCC_VERSION            "0.0.0-a.0"
+#define NOCC_VERSION            "0.2.0-a.0"
 
 #define NOCC_INIT_CAP           10
 
@@ -42,7 +42,7 @@ typedef enum {
 } nocc_log_level;
 
 #define buffer_size  1024
-int nocc_log_output(nocc_log_level level, const char* fmt, ...) {
+int _nocc_log_output(nocc_log_level level, const char* fmt, ...) {
     static const char* levels[NOCC_LOG_LEVEL_OFF] = { "trace", "debug", "info", "warn", "error" };
     char buffer[buffer_size] = {0};
 
@@ -55,11 +55,20 @@ int nocc_log_output(nocc_log_level level, const char* fmt, ...) {
     return status;
 }
 
-#define nocc_trace(fmt, ...)    nocc_log_output(NOCC_LOG_LEVEL_TRACE, fmt, ##__VA_ARGS__)
-#define nocc_debug(fmt, ...)    nocc_log_output(NOCC_LOG_LEVEL_DEBUG, fmt, ##__VA_ARGS__)
-#define nocc_info(fmt, ...)     nocc_log_output(NOCC_LOG_LEVEL_INFO, fmt, ##__VA_ARGS__)
-#define nocc_warn(fmt, ...)     nocc_log_output(NOCC_LOG_LEVEL_WARN, fmt, ##__VA_ARGS__)
-#define nocc_error(fmt, ...)    nocc_log_output(NOCC_LOG_LEVEL_ERROR, fmt, ##__VA_ARGS__)
+/**
+ * @brief Logs a formatted output to the console. Either as a 'trace', 'debug', 'info', 'warn', or 'error'.
+ * 
+ * @param {const char*} fmt -- the formatted output
+ * @param {...} ... -- the arguments which get formatted.
+ * 
+ * @return {int} returns the amount of bytes printed to the console.
+ * 
+*/
+#define nocc_trace(fmt, ...)    _nocc_log_output(NOCC_LOG_LEVEL_TRACE, fmt, ##__VA_ARGS__)
+#define nocc_debug(fmt, ...)    _nocc_log_output(NOCC_LOG_LEVEL_DEBUG, fmt, ##__VA_ARGS__)
+#define nocc_info(fmt, ...)     _nocc_log_output(NOCC_LOG_LEVEL_INFO, fmt, ##__VA_ARGS__)
+#define nocc_warn(fmt, ...)     _nocc_log_output(NOCC_LOG_LEVEL_WARN, fmt, ##__VA_ARGS__)
+#define nocc_error(fmt, ...)    _nocc_log_output(NOCC_LOG_LEVEL_ERROR, fmt, ##__VA_ARGS__)
 
 #ifdef NOCC_DEBUG
     #define NOCC_ENABLE_ASSERTS
@@ -76,17 +85,18 @@ int nocc_log_output(nocc_log_level level, const char* fmt, ...) {
 #else
     #define nocc_assert(x, ...)
 #endif // NOCC_ENABLE_ASSERTS
-
-
 // Logging End ============================================================
 
 // Array Begin ==========================================================
+// This is private and should not be unitilized
 typedef struct {
     size_t capacity, size, stride;
 } _nocc_da_header;
 
+// A helper function to calculate the head of the pointer. This is private and should not be utilized
 #define _nocc_da_calc_header(a) (_nocc_da_header*)((uint8_t*)(a) - sizeof(_nocc_da_header));
 
+// Since these function 
 void* _nocc_da_reserve(size_t stride, size_t cap);
 void  _nocc_da_free(void* array);
 void* _nocc_da_push(void* array, void* value);
@@ -96,39 +106,476 @@ size_t _nocc_da_size(void* array);
 size_t _nocc_da_capacity(void* array);
 size_t _nocc_da_stride(void* array);
 
+/**
+ * @brief a wrapper. To use this as the type. Think of std::vector<T> in C++
+*/
 #define nocc_darray(T) T*
 
+/**
+ * @brief Creates an array with a stated capacity
+ * 
+ * @param {T} type -- the type of the array to reserve
+ * @param {size_t} cap -- The capacity of the array
+ * 
+ * @return {void*} returns the newly constructed array or NULL if the creation failed.
+ * 
+*/
 #define nocc_da_reserve(T, cap)                 _nocc_da_reserve(sizeof(T), cap)
+
+/**
+ * @brief Creates an array with a capacity of 10.
+ * 
+ * @param {T} type -- the type of the array to reserve
+ * 
+ * @return {void*} returns the newly constructed array or NULL if the creation failed.
+ * 
+*/
 #define nocc_da_create(T)                       nocc_da_reserve(T, NOCC_INIT_CAP)
+
+/**
+ * @brief Frees the array. If the elements were allocated on the heap. The user must free them.
+ * 
+ * @param {void*} array -- the type of the array to reserve
+ * 
+ * @return {void}
+ * 
+*/
 #define nocc_da_free(a)                         _nocc_da_free(a);
 
+/**
+ * @brief Pushs the value to the end of the array. Think std::vector::push_back
+ * 
+ * @param {void*} a -- The array
+ * @param {void*} v -- The value to add to the array.
+ * 
+ * @return {void}
+*/
 #define nocc_da_push(a, v) {                    \
     typeof((v)) temp = (v);                     \
     a = _nocc_da_push(a, &temp);                \
 }
 
+/**
+ * @brief Pushs the value to the end of the array. Think std::vector::push_back
+ * 
+ * @param {void*} a -- The array
+ * @param {size_t} n -- The amount of elements to add.
+ * @param {void*} v -- The values (as an array) to add to the array.
+ * 
+ * @return {void}
+*/
 #define nocc_da_pushn(a, n, v)                  { a = _nocc_da_pushn(a, n, v); }
+
+/**
+ * @brief Pushs the value to the end of the array. Think std::vector::push_back
+ * 
+ * @param {void*} a -- The array
+ * @param {...} ... -- The values to add to the array.
+ * 
+ * @return {void}
+*/
 #define nocc_da_push_many(a, ...)               { a = _nocc_da_pushn(a, sizeof((typeof(__VA_ARGS__)[]){__VA_ARGS__}) / nocc_da_stride(a), (typeof(__VA_ARGS__)[]){__VA_ARGS__}); }
 
+/**
+ * @brief returns the size of the array
+ * 
+ * @param {void*} a -- The array
+ * 
+ * @return {size_t} The size of the array
+ * 
+*/
 #define nocc_da_size(a)                 _nocc_da_size(a)
+
+/**
+ * @brief returns the capacity of the array
+ * 
+ * @param {void*} a -- The array
+ * 
+ * @return {size_t} The capacity of the array
+ * 
+*/
 #define nocc_da_capacity(a)             _nocc_da_capacity(a)
+
+/**
+ * @brief returns the stride of the array
+ * 
+ * @param {void*} a -- The array
+ * 
+ * @return {size_t} The stride of the array
+ * 
+*/
 #define nocc_da_stride(a)               _nocc_da_stride(a)
 // Array End ============================================================
 
 // String Begin ==========================================================
+/**
+ * @brief the type of the string
+ * 
+ * TODO: what would be cool is to allow wide strings as well, such as wchar_t
+*/
 #define nocc_string char*
+
+/**
+ * @brief Creates a string with a capacity. This is just a wrapper of the array class from above
+ * 
+ * @param {size_t} cap -- The amount to reserve the array with
+ * 
+ * @return {void*} The newly created string
+ * 
+ * TODO: what would be cool is to allow wide strings as well, such as wchar_t
+*/
 #define nocc_str_reserve(cap)               nocc_da_reserve(char, cap)
+
+/**
+ * @brief Creates a string with a predefined capacity. This is just a wrapper of the array class from above
+ * 
+ * @return {void*} The newly created string
+ * 
+ * TODO: what would be cool is to allow wide strings as well, such as wchar_t
+*/
 #define nocc_str_create()                   nocc_da_reserve(char, NOCC_INIT_CAP)
+
+/**
+ * @brief Frees the string. This is just a wrapper of the array class from above
+ * 
+ * @param {void*} str -- The string
+ * 
+ * @return {void}
+ * 
+*/
 #define nocc_str_free(str)                  nocc_da_free(str)
 
+/**
+ * @brief Pushes a character to the end of the string. This is just a wrapper of the array class from above
+ * 
+ * @param {void*} str -- The string
+ * @param {char} c -- The character to add
+ * 
+ * @return {void}
+*/
 #define nocc_str_push_char(str, c)          nocc_da_push(str, c)
+
+/**
+ * @brief Pushes a '\0' character to the end of the string. Without it, the string could not be used as a C string. This is just a wrapper of the array class from above
+ * 
+ * @param {void*} str -- The string
+ * 
+ * @return {void}
+*/
 #define nocc_str_push_null(str)             nocc_da_push(str, '\0')
+
+/**
+ * @brief Pushes a C string to the end of the string. This is just a wrapper of the array class from above
+ * 
+ * @param {void*} str -- The string
+ * @param {char*} s -- The string to add
+ * 
+ * @return {void}
+*/
 #define nocc_str_push_cstr(str, s)          nocc_da_pushn(str, strlen(s), s);
 
+/**
+ * @brief Gets the size of the string. This is just a wrapper of the array class from above
+ * 
+ * @param {void*} str -- The string
+ * 
+ * @return {size_t} the size/length of the string.
+*/
 #define nocc_str_size(s)                    nocc_da_size
+
+/**
+ * @brief Gets the capacity of the string. This is just a wrapper of the array class from above
+ * 
+ * @param {void*} str -- The string
+ * 
+ * @return {size_t} the capacity of the string. The total it can carry until needing to resize the string.
+*/
 #define nocc_str_capacity(s)                nocc_da_capacity
+
+/**
+ * @brief Gets the stride of the string. This is just a wrapper of the array class from above
+ * 
+ * @param {void*} str -- The string
+ * 
+ * @return {size_t} the stride of each element of the string.
+*/
+
 #define nocc_str_stride(s)                  nocc_da_stride
 // String End ============================================================
+
+// Argument Parsing Begin =================================================
+
+/**
+ * TODO
+ * TODO: While the design is cool? it is definitely not expandable. I think it would
+ * TODO: definitely be better to move away from a heap based to a stack based CLI parser
+ * TODO: And by that I mean the nocc_argparse_option, nocc_argparse_arguments, and nocc_argparse_command
+ * TODO: are all allocated on the heap with the exception of the main `program` command that the user
+ * TODO: creates.
+ * 
+ * TODO: After the shift to a total stack based CLI parser, I need a good way to be able to parse
+ * TODO: ints, strings, or floats from the CLI rather than just a boolean.
+ * 
+ * TODO: After that, I need a way to have a switch. By that I mean say a user wants to build a release build,
+ * TODO: if the user types in '--release' it itmplies it as `config: release` rather than as a boolean field
+ * TODO: that it currently is.
+ * 
+*/
+
+typedef enum {
+    NOCC_APT_UNKNOWN = 0,
+    NOCC_APT_BOOLEAN, NOCC_APT_STRING, NOCC_APT_NUMBER, NOCC_APT_FLOAT
+} _nocc_argparse_type;
+
+typedef struct {
+    char short_name;
+    const char* long_name;
+    const char* description;
+    bool* output_ptr;
+} nocc_argparse_option;
+
+typedef struct {
+    bool is_optional;
+} nocc_argparse_argument;
+
+typedef struct nocc_argparse_command {
+    const char* name;
+    const char* description;
+    const char* version;
+    nocc_darray(nocc_argparse_argument) arguments;
+    nocc_darray(nocc_argparse_option) options;
+    nocc_darray(struct nocc_argparse_command) commands;
+    bool* output_ptr;
+} nocc_argparse_command;
+
+/**
+ * @brief Frees any allocated memory.
+ * 
+ * @param {nocc_argparse_command*} command -- The command to free.
+ * 
+*/
+void nocc_ap_free(nocc_argparse_command* command) {
+    command->name = NULL;
+    command->description = NULL;
+    command->version = NULL;
+    if(command->arguments) {
+        nocc_da_free(command->arguments);
+        command->arguments = NULL;
+    }
+    if(command->options) {
+        nocc_da_free(command->options);
+        command->options = NULL;
+    }
+    if(command->commands) {
+        for (size_t i = 0; i < nocc_da_size(command->commands); i++)
+            nocc_ap_free(&command->commands[i]);
+        nocc_da_free(command->commands);
+        command->commands = NULL;
+    }
+}
+
+/**
+ * @brief Sets the name of the command.
+ * 
+ * @param {nocc_argparse_command*} command -- The command to name.
+ * @param {const char*} name -- The name of the command.
+ * 
+ * @return {bool}
+*/
+bool nocc_ap_name(nocc_argparse_command* command, const char* name) {
+    command->name = name;
+    return true;
+}
+
+/**
+ * @brief Describes the command when --help is called.
+ * 
+ * @param {nocc_argparse_command*} command -- The command to describe.
+ * @param {const char*} description -- The description of the command.
+ * 
+ * @return {bool}
+*/
+bool nocc_ap_description(nocc_argparse_command* command, const char* description) {
+    command->description = description;
+    return true;
+}
+
+/**
+ * @brief Sets the arguments of the command.
+ * 
+ * @param {nocc_argparse_command*} command -- The command.
+ * 
+ * @return {bool}
+ * 
+ * TODO: IMPLEMENT THIS
+*/
+bool nocc_ap_argument(nocc_argparse_command* command) {
+    return true;
+}
+
+/**
+ * @brief Sets the subcommands of the command.
+ * 
+ * @param {nocc_argparse_command*} command -- The command.
+ * @param {nocc_argparse_command*} child -- The subcommand.
+ * @param {bool*} child -- output_ptr.
+ * 
+ * @return {bool}
+*/
+bool nocc_ap_command(nocc_argparse_command* command, nocc_argparse_command* child, bool* output_ptr) {
+    if(command->commands == NULL)
+        command->commands = nocc_da_create(nocc_argparse_command);
+    child->output_ptr = output_ptr;
+    nocc_da_push(command->commands, *child);   
+}
+
+/**
+ * @brief Sets the options of the command. Think of --help or -v. Supports both short name and long names.
+ * 
+ * @param {nocc_argparse_command*} command -- The command.
+ * @param {nocc_argparse_command*} child -- The subcommand.
+ * @param {bool*} child -- output_ptr.
+ * 
+ * @return {bool}
+*/
+bool nocc_ap_option(nocc_argparse_command* command, const char short_name, const char* long_name, const char* description, bool* output_ptr) {
+    if(command->options == NULL)
+        command->options = nocc_da_create(nocc_argparse_option);
+    
+    nocc_argparse_option opt;
+    opt.short_name = short_name;
+    opt.long_name = long_name;
+    opt.description = description;
+    opt.output_ptr = output_ptr;
+    nocc_da_push(command->options, opt);    
+
+    return true;
+}
+
+bool _nocc_ap_parse_rec(nocc_argparse_command* command, int beg, int argc, char** argv) {
+    nocc_assert(command, "command cannot be NULL");
+    nocc_assert(beg < argc, "");
+    nocc_assert(argv, "argv cannot be NULL");
+
+    for(size_t i = beg; i < argc; i++) {
+        char* arg = argv[i];
+
+        if(command->commands) {
+            for(size_t i = 0; i < nocc_da_size(command->commands); i++) {
+                nocc_argparse_command cmd = command->commands[i];
+
+                if(strcmp(cmd.name, arg) == 0) {
+                    *(cmd.output_ptr) = true;
+                }
+                _nocc_ap_parse_rec(&cmd, beg + 1, argc, argv);
+            }
+        }
+
+        if(command->options) {
+            for(size_t i = 0; i < nocc_da_size(command->options); i++) {
+                nocc_argparse_option opt = command->options[i];
+                if(arg[0] == '-') {     // If true it can either be a long name or short name
+                    if(arg[1] == '-') { // If true then its the long name
+                        if(strcmp(opt.long_name, arg + 2) == 0)
+                            *(opt.output_ptr) = true;
+                        continue;
+                    }
+                    if(arg[1] == opt.short_name)
+                        *(opt.output_ptr) = true;
+                }
+            }
+        }
+    }
+
+    return true;
+}
+
+/**
+ * @brief Parses the options, arguments, and subcommands. If you call this function call this function with the main command rather than a subcommand.
+ * This function parses it recursively. So you have to call this function once. And it will do all the work for you.
+ * 
+ * @param {nocc_argparse_command*} program -- The command to parse.
+ * @param {int} argc -- The arg counter passed into main, or __argc.
+ * @param {char**} argv -- The variadic arguments passed into main or __argv.
+ * 
+ * @return {bool}
+*/
+bool nocc_ap_parse(nocc_argparse_command* program, int argc, char** argv) {
+    return _nocc_ap_parse_rec(program, 1, argc, argv);
+}
+
+/**
+ * @brief Creates the usage string and prints the usage to output.
+ * 
+ * @param {nocc_argparse_command*} program -- The command to usageify.
+ * 
+ * @return {bool}
+*/
+bool nocc_ap_usage(nocc_argparse_command* program) {
+    nocc_string usage_string = nocc_str_create();
+    
+    nocc_str_push_cstr(usage_string, "Usage: ");
+    nocc_str_push_cstr(usage_string, program->name);
+    if(program->commands) {
+        nocc_str_push_char(usage_string, ' ');
+        nocc_str_push_cstr(usage_string, "<command>");
+    }
+    if(program->arguments) {
+        nocc_str_push_char(usage_string, ' ');
+        nocc_str_push_cstr(usage_string, "[<arguments>]");
+    }
+    if(program->options) {
+        nocc_str_push_char(usage_string, ' ');
+        nocc_str_push_cstr(usage_string, "[options]");
+    }
+    nocc_str_push_cstr(usage_string, "\n\n");
+
+    nocc_str_push_cstr(usage_string, program->description);
+
+    if(program->commands) {
+        nocc_str_push_cstr(usage_string, "\n\n");
+        nocc_str_push_cstr(usage_string, "Commands:\n");
+        for(size_t i = 0; i < nocc_da_size(program->commands); i++) {
+            nocc_str_push_char(usage_string, '\t');
+            nocc_str_push_cstr(usage_string, program->commands[i].name);
+            nocc_str_push_cstr(usage_string, "\t\t\t\t");
+            nocc_str_push_cstr(usage_string, program->commands[i].description);
+        }
+    }
+
+    if(program->arguments) {
+        nocc_str_push_cstr(usage_string, "\n\n");
+        nocc_str_push_cstr(usage_string, "Arguments\n");
+        for(size_t i = 0; i < nocc_da_size(program->arguments); i++) {
+            // TODO: Print arguments here
+        }
+    }
+
+    if(program->options) {
+        nocc_str_push_cstr(usage_string, "\n\n");
+        nocc_str_push_cstr(usage_string, "Options:\n");
+        for(size_t i = 0; i < nocc_da_size(program->options); i++) {
+            nocc_str_push_cstr(usage_string, "\t-");
+            nocc_str_push_char(usage_string, program->options[i].short_name);
+            nocc_str_push_cstr(usage_string, ", --");
+            nocc_str_push_cstr(usage_string, program->options[i].long_name);
+            nocc_str_push_cstr(usage_string, "\t\t\t");
+            nocc_str_push_cstr(usage_string, program->options[i].description);
+            nocc_str_push_char(usage_string, '\n');
+        }
+    }
+
+    nocc_str_push_null(usage_string);
+
+    printf("%s", usage_string);
+
+    nocc_str_free(usage_string);
+    return true;
+}
+
+// Argument Parsing End ===================================================
+
+// File Begins ============================================================
 
 typedef enum {
     NOCC_FT_UNKNOWN,
