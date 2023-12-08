@@ -341,10 +341,12 @@ typedef struct {
 typedef struct nocc_argparse_command {
     const char* name;
     const char* description;
-    const char* version;
     nocc_darray(nocc_argparse_argument) arguments;
+    size_t arguments_size;
     nocc_darray(nocc_argparse_option) options;
+    size_t options_size;
     nocc_darray(struct nocc_argparse_command) commands;
+    size_t commands_size;
     bool* output_ptr;
 } nocc_argparse_command;
 
@@ -357,7 +359,6 @@ typedef struct nocc_argparse_command {
 void nocc_ap_free(nocc_argparse_command* command) {
     command->name = NULL;
     command->description = NULL;
-    command->version = NULL;
     if(command->arguments) {
         nocc_da_free(command->arguments);
         command->arguments = NULL;
@@ -423,10 +424,12 @@ bool nocc_ap_argument(nocc_argparse_command* command) {
  * @return {bool}
 */
 bool nocc_ap_command(nocc_argparse_command* command, nocc_argparse_command* child, bool* output_ptr) {
-    if(command->commands == NULL)
+    if(command->commands == NULL) {
         command->commands = nocc_da_create(nocc_argparse_command);
+    }
     child->output_ptr = output_ptr;
-    nocc_da_push(command->commands, *child);   
+    nocc_da_push(command->commands, *child);
+    command->commands_size = nocc_da_size(command->commands);
 }
 
 /**
@@ -448,6 +451,7 @@ bool nocc_ap_option(nocc_argparse_command* command, const char short_name, const
     opt.description = description;
     opt.output_ptr = output_ptr;
     nocc_da_push(command->options, opt);    
+    command->commands_size = nocc_da_size(command->commands);
 
     return true;
 }
@@ -461,7 +465,7 @@ bool _nocc_ap_parse_rec(nocc_argparse_command* command, int beg, int argc, char*
         char* arg = argv[i];
 
         if(command->commands) {
-            for(size_t i = 0; i < nocc_da_size(command->commands); i++) {
+            for(size_t i = 0; i < command->commands_size; i++) {
                 nocc_argparse_command cmd = command->commands[i];
 
                 if(strcmp(cmd.name, arg) == 0) {
@@ -472,16 +476,18 @@ bool _nocc_ap_parse_rec(nocc_argparse_command* command, int beg, int argc, char*
         }
 
         if(command->options) {
-            for(size_t i = 0; i < nocc_da_size(command->options); i++) {
+            for(size_t i = 0; i < command->options_size; i++) {
                 nocc_argparse_option opt = command->options[i];
                 if(arg[0] == '-') {     // If true it can either be a long name or short name
                     if(arg[1] == '-') { // If true then its the long name
-                        if(strcmp(opt.long_name, arg + 2) == 0)
+                        if(strcmp(opt.long_name, arg + 2) == 0) {
                             *(opt.output_ptr) = true;
+                        }
                         continue;
                     }
-                    if(arg[1] == opt.short_name)
+                    if(arg[1] == opt.short_name) {
                         *(opt.output_ptr) = true;
+                    }
                 }
             }
         }
@@ -535,7 +541,7 @@ bool nocc_ap_usage(nocc_argparse_command* program) {
     if(program->commands) {
         nocc_str_push_cstr(usage_string, "\n\n");
         nocc_str_push_cstr(usage_string, "Commands:\n");
-        for(size_t i = 0; i < nocc_da_size(program->commands); i++) {
+        for(size_t i = 0; i < program->commands_size; i++) {
             nocc_str_push_char(usage_string, '\t');
             nocc_str_push_cstr(usage_string, program->commands[i].name);
             nocc_str_push_cstr(usage_string, "\t\t\t\t");
@@ -546,7 +552,7 @@ bool nocc_ap_usage(nocc_argparse_command* program) {
     if(program->arguments) {
         nocc_str_push_cstr(usage_string, "\n\n");
         nocc_str_push_cstr(usage_string, "Arguments\n");
-        for(size_t i = 0; i < nocc_da_size(program->arguments); i++) {
+        for(size_t i = 0; i < program->arguments_size; i++) {
             // TODO: Print arguments here
         }
     }
@@ -554,7 +560,7 @@ bool nocc_ap_usage(nocc_argparse_command* program) {
     if(program->options) {
         nocc_str_push_cstr(usage_string, "\n\n");
         nocc_str_push_cstr(usage_string, "Options:\n");
-        for(size_t i = 0; i < nocc_da_size(program->options); i++) {
+        for(size_t i = 0; i < program->options_size; i++) {
             nocc_str_push_cstr(usage_string, "\t-");
             nocc_str_push_char(usage_string, program->options[i].short_name);
             nocc_str_push_cstr(usage_string, ", --");
