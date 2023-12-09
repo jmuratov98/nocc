@@ -324,14 +324,28 @@ size_t _nocc_da_stride(void* array);
 
 typedef enum {
     NOCC_APT_UNKNOWN = 0,
-    NOCC_APT_BOOLEAN, NOCC_APT_STRING, NOCC_APT_NUMBER, NOCC_APT_FLOAT
+
+    // BASE TYPES
+    NOCC_APT_BOOLEAN, NOCC_APT_NUMBER, NOCC_APT_FLOAT, NOCC_APT_STRING,
+    
+    // COMPLEX TYPES
+    NOCC_APT_ARRAY,     // TODO: Implement this later...
+
+    /**
+     * @brief the idea of this is allow for a flag to imply some thing else. For example, --debug flag
+     * may be interpreted as to config="debug" (depending on the pointer that is put in)
+    */
+    NOCC_APT_SWITCH,    // TODO: Implement this to allow for other data types other than a string.  
 } _nocc_argparse_type;
 
 typedef struct {
     char short_name;
     const char* long_name;
     const char* description;
-    bool* output_ptr;
+    void* output_ptr;
+
+    // Internal stuff. If I used a .c file, i would hide this in there, but i am not.
+    _nocc_argparse_type _type;
 } nocc_argparse_option;
 
 typedef struct {
@@ -350,112 +364,19 @@ typedef struct nocc_argparse_command {
     bool* output_ptr;
 } nocc_argparse_command;
 
-/**
- * @brief Frees any allocated memory.
- * 
- * @param {nocc_argparse_command*} command -- The command to free.
- * 
-*/
-void nocc_ap_free(nocc_argparse_command* command) {
-    command->name = NULL;
-    command->description = NULL;
-    if(command->arguments) {
-        nocc_da_free(command->arguments);
-        command->arguments = NULL;
-    }
-    if(command->options) {
-        nocc_da_free(command->options);
-        command->options = NULL;
-    }
-    if(command->commands) {
-        for (size_t i = 0; i < nocc_da_size(command->commands); i++)
-            nocc_ap_free(&command->commands[i]);
-        nocc_da_free(command->commands);
-        command->commands = NULL;
-    }
+#define nocc_ap_opt_boolean(sn, ln, d, op) { ._type=NOCC_APT_BOOLEAN, .short_name=(sn), .long_name=(ln), .description=(d), .output_ptr=&(op) }
+#define nocc_ap_opt_switch(sn, ln, d, op)  { ._type=NOCC_APT_SWITCH, .short_name=(sn), .long_name=(ln), .description=(d), .output_ptr=&(op) }
+
+#define nocc_ap_cmd(n, d, o, a, c, op) {                                                \
+    .name = (n),                                                                        \
+    .description = (d),                                                                 \
+    .options = (o), .options_size = (sizeof(o) / sizeof(nocc_argparse_option)),         \
+    .arguments = (a), .arguments_size = (sizeof(a) / sizeof(nocc_argparse_argument)),   \
+    .commands = (a), .commands_size = (sizeof(c) / sizeof(nocc_argparse_command)),      \
+    .output_ptr = &(op)                                                                 \
 }
 
-/**
- * @brief Sets the name of the command.
- * 
- * @param {nocc_argparse_command*} command -- The command to name.
- * @param {const char*} name -- The name of the command.
- * 
- * @return {bool}
-*/
-bool nocc_ap_name(nocc_argparse_command* command, const char* name) {
-    command->name = name;
-    return true;
-}
-
-/**
- * @brief Describes the command when --help is called.
- * 
- * @param {nocc_argparse_command*} command -- The command to describe.
- * @param {const char*} description -- The description of the command.
- * 
- * @return {bool}
-*/
-bool nocc_ap_description(nocc_argparse_command* command, const char* description) {
-    command->description = description;
-    return true;
-}
-
-/**
- * @brief Sets the arguments of the command.
- * 
- * @param {nocc_argparse_command*} command -- The command.
- * 
- * @return {bool}
- * 
- * TODO: IMPLEMENT THIS
-*/
-bool nocc_ap_argument(nocc_argparse_command* command) {
-    return true;
-}
-
-/**
- * @brief Sets the subcommands of the command.
- * 
- * @param {nocc_argparse_command*} command -- The command.
- * @param {nocc_argparse_command*} child -- The subcommand.
- * @param {bool*} child -- output_ptr.
- * 
- * @return {bool}
-*/
-bool nocc_ap_command(nocc_argparse_command* command, nocc_argparse_command* child, bool* output_ptr) {
-    if(command->commands == NULL) {
-        command->commands = nocc_da_create(nocc_argparse_command);
-    }
-    child->output_ptr = output_ptr;
-    nocc_da_push(command->commands, *child);
-    command->commands_size = nocc_da_size(command->commands);
-}
-
-/**
- * @brief Sets the options of the command. Think of --help or -v. Supports both short name and long names.
- * 
- * @param {nocc_argparse_command*} command -- The command.
- * @param {nocc_argparse_command*} child -- The subcommand.
- * @param {bool*} child -- output_ptr.
- * 
- * @return {bool}
-*/
-bool nocc_ap_option(nocc_argparse_command* command, const char short_name, const char* long_name, const char* description, bool* output_ptr) {
-    if(command->options == NULL)
-        command->options = nocc_da_create(nocc_argparse_option);
-    
-    nocc_argparse_option opt;
-    opt.short_name = short_name;
-    opt.long_name = long_name;
-    opt.description = description;
-    opt.output_ptr = output_ptr;
-    nocc_da_push(command->options, opt);    
-    command->commands_size = nocc_da_size(command->commands);
-
-    return true;
-}
-
+// TODO: refactor this code. 
 bool _nocc_ap_parse_rec(nocc_argparse_command* command, int beg, int argc, char** argv) {
     nocc_assert(command, "command cannot be NULL");
     nocc_assert(beg < argc, "");
@@ -481,12 +402,32 @@ bool _nocc_ap_parse_rec(nocc_argparse_command* command, int beg, int argc, char*
                 if(arg[0] == '-') {     // If true it can either be a long name or short name
                     if(arg[1] == '-') { // If true then its the long name
                         if(strcmp(opt.long_name, arg + 2) == 0) {
-                            *(opt.output_ptr) = true;
+                            switch(opt._type) {
+                            case NOCC_APT_BOOLEAN:
+                                *(bool*)(opt.output_ptr) = true;
+                                break;
+                            case NOCC_APT_SWITCH:
+                                *(char**)(opt.output_ptr) = opt.long_name; // Bit maniplation, casting a void* to a pointer to a char* (string).
+                            case NOCC_APT_UNKNOWN:
+                            default:
+                                break;
+                            }
                         }
                         continue;
                     }
+                    
                     if(arg[1] == opt.short_name) {
-                        *(opt.output_ptr) = true;
+                        switch(opt._type) {
+                        case NOCC_APT_BOOLEAN:
+                            *(bool*)(opt.output_ptr) = true;
+                            break;
+                        case NOCC_APT_SWITCH:
+                            *(char**)(opt.output_ptr) = opt.long_name; // Bit maniplation, casting a void* to a pointer to a char* (string).
+                        case NOCC_APT_UNKNOWN:
+                        default:
+                            nocc_error("Unknown argument type!");
+                            break;
+                        }
                     }
                 }
             }
@@ -546,11 +487,12 @@ bool nocc_ap_usage(nocc_argparse_command* program) {
             nocc_str_push_cstr(usage_string, program->commands[i].name);
             nocc_str_push_cstr(usage_string, "\t\t\t\t");
             nocc_str_push_cstr(usage_string, program->commands[i].description);
+            nocc_str_push_char(usage_string, '\n');
         }
     }
 
     if(program->arguments) {
-        nocc_str_push_cstr(usage_string, "\n\n");
+        nocc_str_push_char(usage_string, '\n');
         nocc_str_push_cstr(usage_string, "Arguments\n");
         for(size_t i = 0; i < program->arguments_size; i++) {
             // TODO: Print arguments here

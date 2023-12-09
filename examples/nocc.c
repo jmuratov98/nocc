@@ -10,70 +10,42 @@ typedef struct {
     bool run;
     bool help;
     bool version;
-    bool debug, release;
+    char* config;
 } nocc_ap_parse_result;
 
 bool build_helloworlds(nocc_ap_parse_result* result);
 bool run_helloworlds(nocc_ap_parse_result* result);
 
 int main(int argc, char** argv) {
-    nocc_ap_parse_result result;
-
-    bool *help = &result.help;
+    nocc_ap_parse_result result = {};
 
     nocc_argparse_option build_options[] = {
-        { .short_name='h', .long_name="help", .description="Prints this message", .output_ptr=help },
-        { .short_name='d', .long_name="debug", .description="Builds as debug", .output_ptr=&(result.debug) },
-        { .short_name='r', .long_name="release", .description="Builds as release", .output_ptr=&(result.release) }
+        nocc_ap_opt_switch('d', "debug", "Builds as debug", result.config),
+        nocc_ap_opt_switch('r', "release", "Builds as release", result.config),
+        nocc_ap_opt_boolean('h', "help", "Prints this message", result.help)
     };
 
     nocc_argparse_option run_options[] = {
-        { .short_name='h', .long_name="help", .description="Prints this message", .output_ptr=help },
+        nocc_ap_opt_boolean('h', "help", "Prints this message", result.help)
     };
 
     nocc_argparse_option program_options[] = {
-        { .short_name='h', .long_name="help", .description="Prints this message", .output_ptr=help },
-        { .short_name='v', .long_name="version", .description="Prints the version", .output_ptr=&(result.version) },
+        nocc_ap_opt_boolean('h', "help", "Prints this message", result.help),
+        nocc_ap_opt_boolean('v', "version", "Prints the software version", result.help)
     };
 
     nocc_argparse_command subcommands[] = { 
-        { .name = "build", .description = "Builds the project", .options = build_options, .options_size = (sizeof(build_options) / sizeof(nocc_argparse_option)), .output_ptr = &(result.build) },
-        { .name = "run", .description = "runs the project", .options = run_options, .options_size = (sizeof(run_options) / sizeof(nocc_argparse_option)), .output_ptr = &(result.run) }
+        nocc_ap_cmd("build", "Builds the project", build_options, NULL, NULL, result.build),
+        nocc_ap_cmd("run", "runs the project", run_options, NULL, NULL, result.run)
     };
 
-    nocc_argparse_command program = {
-        .name = "nocc",
-        .description = "Building, linking, and running all your favorite code",
-        .options = program_options, .options_size = (sizeof(program_options) / sizeof(nocc_argparse_option)),
-        .commands = subcommands, .commands_size = (sizeof(subcommands) / sizeof(nocc_argparse_command))
-    };
-
-    // nocc_argparse_command program = {0};
-    // nocc_ap_name(&program, "nocc");
-    // nocc_ap_description(&program, "Building, linking, and running all your favorite code");
-    // nocc_ap_option(&program, 'h', "help", "Prints this message", &result.help);
-    // nocc_ap_option(&program, 'v', "version", "Prints the version of the software", &result.version);
-
-    // nocc_argparse_command build = {0};
-    // nocc_ap_name(&build, "build");
-    // nocc_ap_description(&build, "Builds the project");
-    // nocc_ap_option(&build, 'h', "help", "Prints this message", &result.help);
-    // nocc_ap_option(&build, 'd', "debug", "Builds as a debug", &result.debug);
-    // nocc_ap_option(&build, 'r', "release", "Builds as a release build", &result.release);
-    // nocc_ap_command(&program, &build, &result.build);
-
-    // nocc_argparse_command run = {0};
-    // nocc_ap_name(&run, "run");
-    // nocc_ap_description(&run, "Runs the project");
-    // nocc_ap_option(&run, 'h', "help", "Prints this message", &result.help);
-    // nocc_ap_command(&program, &run, &result.run);
+    nocc_argparse_command program = nocc_ap_cmd("nocc", "Building, linking, and running all your favorite code", program_options, NULL, subcommands, result.build);
 
     nocc_ap_parse(&program, argc, argv);
 
     int status = 0;
 
     if(result.build) {
-        nocc_trace("Hello, world");
         if(result.help) {
             nocc_ap_usage(&program.commands[0]);
             goto failure;
@@ -128,12 +100,12 @@ bool build_helloworlds(nocc_ap_parse_result* result) {
 
     printf("Building helloworld.c\n");
     nocc_cmd_add(cmd, "clang");
-    nocc_cmd_add(cmd, hellworld_c, "-o", TARGET_DIR);
-    if(result->debug) {
+    if(strcmp(result->config, "debug") == 0) {
         nocc_cmd_add(cmd, "-g", "-O0");
-    } else if(result->release) {
+    } else if(strcmp(result->config, "release") == 0){ 
         nocc_cmd_add(cmd, "-O2");
     }
+    nocc_cmd_add(cmd, hellworld_c, "-o", TARGET_DIR);
 
     nocc_cmd_execute(cmd);
 
