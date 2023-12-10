@@ -11,6 +11,7 @@ typedef struct {
     bool help;
     bool version;
     char* config;
+    char* project_name;
 } nocc_ap_parse_result;
 
 bool build_helloworlds(nocc_ap_parse_result* result);
@@ -20,26 +21,30 @@ int main(int argc, char** argv) {
     nocc_ap_parse_result result = {};
 
     nocc_argparse_option build_options[] = {
-        nocc_ap_opt_switch('d', "debug", "Builds as debug", result.config),
-        nocc_ap_opt_switch('r', "release", "Builds as release", result.config),
-        nocc_ap_opt_boolean('h', "help", "Prints this message", result.help)
+        nocc_ap_opt_switch('d', "debug", "Builds as debug", &(result.config)),      // This is technically not a true switch, but it still works. // TODO: Actually implement it later
+        nocc_ap_opt_switch('r', "release", "Builds as release", &(result.config)),
+        nocc_ap_opt_boolean('h', "help", "Prints this message", &(result.help))
     };
 
     nocc_argparse_option run_options[] = {
-        nocc_ap_opt_boolean('h', "help", "Prints this message", result.help)
+        nocc_ap_opt_boolean('h', "help", "Prints this message", &(result.help))
     };
 
     nocc_argparse_option program_options[] = {
-        nocc_ap_opt_boolean('h', "help", "Prints this message", result.help),
-        nocc_ap_opt_boolean('v', "version", "Prints the software version", result.help)
+        nocc_ap_opt_boolean('h', "help", "Prints this message", &(result.help)),
+        nocc_ap_opt_boolean('v', "version", "Prints the software version", &(result.version))
+    };
+
+    nocc_argparse_argument build_arguments[] = {
+        nocc_ap_arg_string("project_name", "Builds the project", "all", &(result.project_name))
     };
 
     nocc_argparse_command subcommands[] = { 
-        nocc_ap_cmd("build", "Builds the project", build_options, NULL, NULL, result.build),
-        nocc_ap_cmd("run", "runs the project", run_options, NULL, NULL, result.run)
+        nocc_ap_cmd("build", "Builds the project", build_options, build_arguments, NULL, &(result.build)),
+        nocc_ap_cmd("run", "runs the project", run_options, NULL, NULL, &(result.run))
     };
 
-    nocc_argparse_command program = nocc_ap_cmd("nocc", "Building, linking, and running all your favorite code", program_options, NULL, subcommands, result.build);
+    nocc_argparse_command program = nocc_ap_cmd("nocc", "Building, linking, and running all your favorite code", program_options, NULL, subcommands, NULL);
 
     nocc_ap_parse(&program, argc, argv);
 
@@ -51,10 +56,13 @@ int main(int argc, char** argv) {
             goto failure;
         }
 
-        if(!build_helloworlds(&result)) {
-            nocc_error("unable to build helloworld");
-            status = 1;
-            goto failure;
+        if(strcmp(result.project_name, "helloworld") == 0 || strcmp(result.project_name, "all") == 0) {
+            if(!build_helloworlds(&result)) {
+                nocc_error("unable to build helloworld");
+                status = 1;
+                goto failure;
+            }
+
         }
     }
 

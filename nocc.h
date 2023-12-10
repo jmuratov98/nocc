@@ -102,6 +102,7 @@ void  _nocc_da_free(void* array);
 void* _nocc_da_push(void* array, void* value);
 void* _nocc_da_pushn(void* array, size_t n, void* value);
 void* _nocc_da_grow(void* array, size_t new_capacity);
+void* _nocc_da_remove(void* array, size_t index, void* ouput_ptr);
 size_t _nocc_da_size(void* array);
 size_t _nocc_da_capacity(void* array);
 size_t _nocc_da_stride(void* array);
@@ -175,6 +176,17 @@ size_t _nocc_da_stride(void* array);
  * @return {void}
 */
 #define nocc_da_push_many(a, ...)               { a = _nocc_da_pushn(a, sizeof((typeof(__VA_ARGS__)[]){__VA_ARGS__}) / nocc_da_stride(a), (typeof(__VA_ARGS__)[]){__VA_ARGS__}); }
+
+/**
+ * @brief Removes the element from the array
+ * 
+ * @param {void*} a -- The array
+ * @param {size_t} index -- The index of the array to remove
+ * @param {void*} output_ptr -- the pointer to the element, that was removed 
+ * 
+ * @return {void}
+*/
+#define nocc_da_remove(a, i, op)               { a = _nocc_da_remove((a), (i), (op)); }
 
 /**
  * @brief returns the size of the array
@@ -349,7 +361,13 @@ typedef struct {
 } nocc_argparse_option;
 
 typedef struct {
-    bool is_optional;
+    char* name;
+    char* description;
+    char* default_;     // So far I'm assuming that it can only be a string.
+    void* output_ptr;
+
+    _nocc_argparse_type _type;
+    bool _is_optional;
 } nocc_argparse_argument;
 
 typedef struct nocc_argparse_command {
@@ -364,26 +382,28 @@ typedef struct nocc_argparse_command {
     bool* output_ptr;
 } nocc_argparse_command;
 
-#define nocc_ap_opt_boolean(sn, ln, d, op) { ._type=NOCC_APT_BOOLEAN, .short_name=(sn), .long_name=(ln), .description=(d), .output_ptr=&(op) }
-#define nocc_ap_opt_switch(sn, ln, d, op)  { ._type=NOCC_APT_SWITCH, .short_name=(sn), .long_name=(ln), .description=(d), .output_ptr=&(op) }
+#define nocc_ap_opt_boolean(sn, ln, d, op) { ._type=NOCC_APT_BOOLEAN, .short_name=(sn), .long_name=(ln), .description=(d), .output_ptr=(op) }
+#define nocc_ap_opt_switch(sn, ln, d, op)  { ._type=NOCC_APT_SWITCH, .short_name=(sn), .long_name=(ln), .description=(d), .output_ptr=(op) }
+
+#define nocc_ap_arg_string(n, d, def, op) { ._type=NOCC_APT_STRING, .name=(n), .description=(d), .default_=(def), .output_ptr=(op) }
 
 #define nocc_ap_cmd(n, d, o, a, c, op) {                                                \
     .name = (n),                                                                        \
     .description = (d),                                                                 \
     .options = (o), .options_size = (sizeof(o) / sizeof(nocc_argparse_option)),         \
     .arguments = (a), .arguments_size = (sizeof(a) / sizeof(nocc_argparse_argument)),   \
-    .commands = (a), .commands_size = (sizeof(c) / sizeof(nocc_argparse_command)),      \
-    .output_ptr = &(op)                                                                 \
+    .commands = (c), .commands_size = (sizeof(c) / sizeof(nocc_argparse_command)),      \
+    .output_ptr = (op)                                                                 \
 }
 
-// TODO: refactor this code. 
-bool _nocc_ap_parse_rec(nocc_argparse_command* command, int beg, int argc, char** argv) {
+// TODO: refactor this code.
+// TODO: Things that need to fix are: (1) the nocc_ap_opt_switch and (2) the default value for arguments
+bool _nocc_ap_parse_rec(nocc_argparse_command* command, int beg, nocc_darray(char*) args) {
     nocc_assert(command, "command cannot be NULL");
-    nocc_assert(beg < argc, "");
-    nocc_assert(argv, "argv cannot be NULL");
+    nocc_assert(args, "argv cannot be NULL");
 
-    for(size_t i = beg; i < argc; i++) {
-        char* arg = argv[i];
+    while(nocc_da_size(args) != 0) {
+        char* arg = args[0];
 
         if(command->commands) {
             for(size_t i = 0; i < command->commands_size; i++) {
@@ -391,8 +411,9 @@ bool _nocc_ap_parse_rec(nocc_argparse_command* command, int beg, int argc, char*
 
                 if(strcmp(cmd.name, arg) == 0) {
                     *(cmd.output_ptr) = true;
+                    nocc_da_remove(args, beg, NULL);
+                    return _nocc_ap_parse_rec(&cmd, beg, args);
                 }
-                _nocc_ap_parse_rec(&cmd, beg + 1, argc, argv);
             }
         }
 
@@ -405,24 +426,28 @@ bool _nocc_ap_parse_rec(nocc_argparse_command* command, int beg, int argc, char*
                             switch(opt._type) {
                             case NOCC_APT_BOOLEAN:
                                 *(bool*)(opt.output_ptr) = true;
-                                break;
+                                nocc_da_remove(args, beg, NULL);
+                                goto next_iteration;
                             case NOCC_APT_SWITCH:
-                                *(char**)(opt.output_ptr) = opt.long_name; // Bit maniplation, casting a void* to a pointer to a char* (string).
+                                *(char**)(opt.output_ptr) = opt.long_name; // cast maniplation, casting a void* to a pointer to a char* (string).
+                                nocc_da_remove(args, beg, NULL);
+                                goto next_iteration;
                             case NOCC_APT_UNKNOWN:
                             default:
+                                nocc_error("Unknown argument type!");
                                 break;
                             }
                         }
-                        continue;
-                    }
-                    
-                    if(arg[1] == opt.short_name) {
+                    } else if(arg[1] == opt.short_name) {
                         switch(opt._type) {
                         case NOCC_APT_BOOLEAN:
                             *(bool*)(opt.output_ptr) = true;
-                            break;
+                            nocc_da_remove(args, beg, NULL);
+                            goto next_iteration;
                         case NOCC_APT_SWITCH:
-                            *(char**)(opt.output_ptr) = opt.long_name; // Bit maniplation, casting a void* to a pointer to a char* (string).
+                            *(char**)(opt.output_ptr) = opt.long_name; // cast maniplation, casting a void* to a pointer to a char* (string).
+                            nocc_da_remove(args, beg, NULL);
+                            goto next_iteration;
                         case NOCC_APT_UNKNOWN:
                         default:
                             nocc_error("Unknown argument type!");
@@ -432,6 +457,26 @@ bool _nocc_ap_parse_rec(nocc_argparse_command* command, int beg, int argc, char*
                 }
             }
         }
+    
+        if(command->arguments) {
+            for(size_t i = 0; i < command->arguments_size; i++) {
+                nocc_argparse_argument argument = command->arguments[i];
+                switch (argument._type)
+                {
+                case NOCC_APT_STRING:
+                    *(char**)(argument.output_ptr) = arg;
+                    nocc_da_remove(args, beg, NULL);
+                    goto next_iteration;
+                
+                case NOCC_APT_UNKNOWN:                
+                default:
+                    nocc_error("Unknown argument type!");
+                    break;
+                }
+            }
+        }
+next_iteration:
+    continue;
     }
 
     return true;
@@ -448,7 +493,13 @@ bool _nocc_ap_parse_rec(nocc_argparse_command* command, int beg, int argc, char*
  * @return {bool}
 */
 bool nocc_ap_parse(nocc_argparse_command* program, int argc, char** argv) {
-    return _nocc_ap_parse_rec(program, 1, argc, argv);
+    nocc_darray(char*) args = nocc_da_reserve(char*, argc - 1);
+    nocc_da_pushn(args, argc - 1, argv + 1);
+
+    bool status = _nocc_ap_parse_rec(program, 0, args);
+
+    nocc_da_free(args);
+    return status;
 }
 
 /**
@@ -495,7 +546,17 @@ bool nocc_ap_usage(nocc_argparse_command* program) {
         nocc_str_push_char(usage_string, '\n');
         nocc_str_push_cstr(usage_string, "Arguments\n");
         for(size_t i = 0; i < program->arguments_size; i++) {
-            // TODO: Print arguments here
+            nocc_str_push_char(usage_string, '\t');
+            nocc_str_push_cstr(usage_string, program->arguments[i].name);
+            nocc_str_push_cstr(usage_string, "\t\t\t\t");
+            nocc_str_push_cstr(usage_string, program->arguments[i].description);
+            if(program->arguments[i].default_) {
+                nocc_str_push_cstr(usage_string, " (default=");
+                nocc_str_push_cstr(usage_string, program->arguments[i].default_);
+                nocc_str_push_char(usage_string, ')');
+            }
+            nocc_str_push_char(usage_string, '\n');
+
         }
     }
 
@@ -757,6 +818,28 @@ void* _nocc_da_grow(void* array, size_t new_capacity) {
 
 
    return (void*)((uint8_t*)temp + header_size); 
+}
+
+void* _nocc_da_remove(void* array, size_t index, void* output_ptr) {
+    nocc_assert(array, "Please enter a valid array");
+    nocc_assert(index >= 0 && index < nocc_da_size(array));
+    _nocc_da_header* header = _nocc_da_calc_header(array);
+    
+    uint64_t addr = (uint64_t)array;
+    if(output_ptr != NULL) {
+        memcpy(output_ptr, (array + index), header->stride);
+    }
+
+    if(index != header->size - 1) {
+        memmove(
+            (void*)(addr + (index * header->stride)),
+            (void*)(addr + ((index + 1) * header->stride)),
+            header->stride * (header->size - (index - 1))
+        );
+    }
+
+    header->size--;
+    return array;
 }
 
 size_t _nocc_da_size(void* array) {
