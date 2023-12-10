@@ -479,6 +479,14 @@ next_iteration:
     continue;
     }
 
+    if(command->arguments) {
+        for(size_t i = 0; i < command->arguments_size; i++) {
+            if(*(char**)command->arguments[i].output_ptr == NULL && command->arguments[i].default_) {
+                *(char**)(command->arguments[i].output_ptr) = command->arguments[i].default_;
+            }
+        } 
+    }
+
     return true;
 }
 
