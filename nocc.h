@@ -317,23 +317,6 @@ size_t _nocc_da_stride(void* array);
 
 // Argument Parsing Begin =================================================
 
-/**
- * TODO
- * TODO: While the design is cool? it is definitely not expandable. I think it would
- * TODO: definitely be better to move away from a heap based to a stack based CLI parser
- * TODO: And by that I mean the nocc_argparse_option, nocc_argparse_arguments, and nocc_argparse_command
- * TODO: are all allocated on the heap with the exception of the main `program` command that the user
- * TODO: creates.
- * 
- * TODO: After the shift to a total stack based CLI parser, I need a good way to be able to parse
- * TODO: ints, strings, or floats from the CLI rather than just a boolean.
- * 
- * TODO: After that, I need a way to have a switch. By that I mean say a user wants to build a release build,
- * TODO: if the user types in '--release' it itmplies it as `config: release` rather than as a boolean field
- * TODO: that it currently is.
- * 
-*/
-
 typedef enum {
     NOCC_APT_UNKNOWN = 0,
 
@@ -347,148 +330,72 @@ typedef enum {
      * @brief the idea of this is allow for a flag to imply some thing else. For example, --debug flag
      * may be interpreted as to config="debug" (depending on the pointer that is put in)
     */
-    NOCC_APT_SWITCH,    // TODO: Implement this to allow for other data types other than a string.  
+    NOCC_APT_SWITCH,  
 } _nocc_argparse_type;
 
-typedef struct {
-    char short_name;
-    const char* long_name;
+#define _USE_NEW_ARGPARSE_ 
+typedef enum {
+    NOCC_APK_UNKNOWN = 0,
+    NOCC_APK_OPTION, NOCC_APK_ARGUMENT, NOCC_APK_COMMAND
+} _nocc_argparse_kind;
+
+typedef struct nocc_argparse_opt {
+    const char* name;             // long_name for your options;
     const char* description;
     void* output_ptr;
 
-    // Internal stuff. If I used a .c file, i would hide this in there, but i am not.
-    _nocc_argparse_type _type;
-} nocc_argparse_option;
+    // internal        
+    _nocc_argparse_kind _kind;
+    void* default_;
 
-typedef struct {
-    char* name;
-    char* description;
-    char* default_;     // So far I'm assuming that it can only be a string.
-    void* output_ptr;
+    union {
+        // Options
+        struct {
+            char short_name;
+            _nocc_argparse_type _type;
+            struct nocc_argparse_opt* _children;
+            size_t _length_children;
+        };
 
-    _nocc_argparse_type _type;
-    bool _is_optional;
-} nocc_argparse_argument;
+        // Argument
 
-typedef struct nocc_argparse_command {
-    const char* name;
-    const char* description;
-    nocc_darray(nocc_argparse_argument) arguments;
-    size_t arguments_size;
-    nocc_darray(nocc_argparse_option) options;
-    size_t options_size;
-    nocc_darray(struct nocc_argparse_command) commands;
-    size_t commands_size;
-    bool* output_ptr;
-} nocc_argparse_command;
+        // Command
+        struct {
+            nocc_darray(struct nocc_argparse_opt) arguments;
+            size_t arguments_size;
+            nocc_darray(struct nocc_argparse_opt) options;
+            size_t options_size;
+            nocc_darray(struct nocc_argparse_opt) commands;
+            size_t commands_size;
+        };
+    };
 
-#define nocc_ap_opt_boolean(sn, ln, d, op) { ._type=NOCC_APT_BOOLEAN, .short_name=(sn), .long_name=(ln), .description=(d), .output_ptr=(op) }
-#define nocc_ap_opt_switch(sn, ln, d, op)  { ._type=NOCC_APT_SWITCH, .short_name=(sn), .long_name=(ln), .description=(d), .output_ptr=(op) }
+} nocc_argparse_opt;
 
-#define nocc_ap_arg_string(n, d, def, op) { ._type=NOCC_APT_STRING, .name=(n), .description=(d), .default_=(def), .output_ptr=(op) }
+#define nocc_ap_opt_boolean(sn, ln, desc, def, op) { ._kind=NOCC_APK_OPTION, ._type=NOCC_APT_BOOLEAN, .short_name=(sn), .name=(ln), .description=(desc), .default_=(def), .output_ptr=(op), ._children=NULL, ._length_children=0 }
+#define nocc_ap_opt_switch(a, def, op) { ._kind=NOCC_APK_OPTION, ._type=NOCC_APT_SWITCH, .short_name=0, .name=NULL, .description=NULL, .default_=(def), .output_ptr=(op), ._children=(a), ._length_children=(sizeof(a) / sizeof(nocc_argparse_opt)) }
+
+#define nocc_ap_arg_string(n, d, def, op) { ._kind=NOCC_APK_ARGUMENT, ._type=NOCC_APT_STRING, .name=(n), .description=(d), .default_=(def), .output_ptr=(op) }
 
 #define nocc_ap_cmd(n, d, o, a, c, op) {                                                \
+    ._kind = NOCC_APK_COMMAND,                                                          \
     .name = (n),                                                                        \
     .description = (d),                                                                 \
-    .options = (o), .options_size = (sizeof(o) / sizeof(nocc_argparse_option)),         \
-    .arguments = (a), .arguments_size = (sizeof(a) / sizeof(nocc_argparse_argument)),   \
-    .commands = (c), .commands_size = (sizeof(c) / sizeof(nocc_argparse_command)),      \
-    .output_ptr = (op)                                                                 \
+    .options = (o), .options_size = (sizeof(o) / sizeof(nocc_argparse_opt)),            \
+    .arguments = (a), .arguments_size = (sizeof(a) / sizeof(nocc_argparse_opt)),        \
+    .commands = (c), .commands_size = (sizeof(c) / sizeof(nocc_argparse_opt)),          \
+    .default_ = NULL,                                                                   \
+    .output_ptr = (op)                                                                  \
 }
 
-// TODO: refactor this code.
-// TODO: Things that need to fix are: (1) the nocc_ap_opt_switch and (2) the default value for arguments
-bool _nocc_ap_parse_rec(nocc_argparse_command* command, int beg, nocc_darray(char*) args) {
-    nocc_assert(command, "command cannot be NULL");
-    nocc_assert(args, "argv cannot be NULL");
-
-    while(nocc_da_size(args) != 0) {
-        char* arg = args[0];
-
-        if(command->commands) {
-            for(size_t i = 0; i < command->commands_size; i++) {
-                nocc_argparse_command cmd = command->commands[i];
-
-                if(strcmp(cmd.name, arg) == 0) {
-                    *(cmd.output_ptr) = true;
-                    nocc_da_remove(args, beg, NULL);
-                    return _nocc_ap_parse_rec(&cmd, beg, args);
-                }
-            }
-        }
-
-        if(command->options) {
-            for(size_t i = 0; i < command->options_size; i++) {
-                nocc_argparse_option opt = command->options[i];
-                if(arg[0] == '-') {     // If true it can either be a long name or short name
-                    if(arg[1] == '-') { // If true then its the long name
-                        if(strcmp(opt.long_name, arg + 2) == 0) {
-                            switch(opt._type) {
-                            case NOCC_APT_BOOLEAN:
-                                *(bool*)(opt.output_ptr) = true;
-                                nocc_da_remove(args, beg, NULL);
-                                goto next_iteration;
-                            case NOCC_APT_SWITCH:
-                                *(char**)(opt.output_ptr) = opt.long_name; // cast maniplation, casting a void* to a pointer to a char* (string).
-                                nocc_da_remove(args, beg, NULL);
-                                goto next_iteration;
-                            case NOCC_APT_UNKNOWN:
-                            default:
-                                nocc_error("Unknown argument type!");
-                                break;
-                            }
-                        }
-                    } else if(arg[1] == opt.short_name) {
-                        switch(opt._type) {
-                        case NOCC_APT_BOOLEAN:
-                            *(bool*)(opt.output_ptr) = true;
-                            nocc_da_remove(args, beg, NULL);
-                            goto next_iteration;
-                        case NOCC_APT_SWITCH:
-                            *(char**)(opt.output_ptr) = opt.long_name; // cast maniplation, casting a void* to a pointer to a char* (string).
-                            nocc_da_remove(args, beg, NULL);
-                            goto next_iteration;
-                        case NOCC_APT_UNKNOWN:
-                        default:
-                            nocc_error("Unknown argument type!");
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-    
-        if(command->arguments) {
-            for(size_t i = 0; i < command->arguments_size; i++) {
-                nocc_argparse_argument argument = command->arguments[i];
-                switch (argument._type)
-                {
-                case NOCC_APT_STRING:
-                    *(char**)(argument.output_ptr) = arg;
-                    nocc_da_remove(args, beg, NULL);
-                    goto next_iteration;
-                
-                case NOCC_APT_UNKNOWN:                
-                default:
-                    nocc_error("Unknown argument type!");
-                    break;
-                }
-            }
-        }
-next_iteration:
-    continue;
-    }
-
-    if(command->arguments) {
-        for(size_t i = 0; i < command->arguments_size; i++) {
-            if(*(char**)command->arguments[i].output_ptr == NULL && command->arguments[i].default_) {
-                *(char**)(command->arguments[i].output_ptr) = command->arguments[i].default_;
-            }
-        } 
-    }
-
-    return true;
-}
+bool _nocc_ap_parse_rec(nocc_argparse_opt* command, int beg, nocc_darray(char*) args);
+inline bool _nocc_ap_find_if_is_long(char c);
+bool _nocc_ap_get_option_status(nocc_argparse_opt* opt, bool is_long, char* arg);
+bool _nocc_ap_parse_option(nocc_argparse_opt* command, int beg, nocc_darray(char*) args, char* arg);
+bool _nocc_ap_parse_argument(nocc_argparse_opt* command, int beg, nocc_darray(char*) args, char* arg);
+void _nocc_ap_set_default_option(nocc_argparse_opt* command);
+void _nocc_ap_set_default_argument(nocc_argparse_opt* command);
+void _nocc_ap_set_default(nocc_argparse_opt* command);
 
 /**
  * @brief Parses the options, arguments, and subcommands. If you call this function call this function with the main command rather than a subcommand.
@@ -500,7 +407,7 @@ next_iteration:
  * 
  * @return {bool}
 */
-bool nocc_ap_parse(nocc_argparse_command* program, int argc, char** argv) {
+bool nocc_ap_parse(nocc_argparse_opt* program, int argc, char** argv) {
     nocc_darray(char*) args = nocc_da_reserve(char*, argc - 1);
     nocc_da_pushn(args, argc - 1, argv + 1);
 
@@ -513,11 +420,13 @@ bool nocc_ap_parse(nocc_argparse_command* program, int argc, char** argv) {
 /**
  * @brief Creates the usage string and prints the usage to output.
  * 
- * @param {nocc_argparse_command*} program -- The command to usageify.
+ * @param {nocc_argparse_opt*} program -- The command to usageify.
  * 
  * @return {bool}
 */
-bool nocc_ap_usage(nocc_argparse_command* program) {
+bool nocc_ap_usage(nocc_argparse_opt* program) {
+    if(program->_kind != NOCC_APK_COMMAND) return false;
+
     nocc_string usage_string = nocc_str_create();
     
     nocc_str_push_cstr(usage_string, "Usage: ");
@@ -551,12 +460,12 @@ bool nocc_ap_usage(nocc_argparse_command* program) {
     }
 
     if(program->arguments) {
-        nocc_str_push_char(usage_string, '\n');
-        nocc_str_push_cstr(usage_string, "Arguments\n");
+        nocc_str_push_cstr(usage_string, "\n\n");
+        nocc_str_push_cstr(usage_string, "Arguments:\n");
         for(size_t i = 0; i < program->arguments_size; i++) {
             nocc_str_push_char(usage_string, '\t');
             nocc_str_push_cstr(usage_string, program->arguments[i].name);
-            nocc_str_push_cstr(usage_string, "\t\t\t\t");
+            nocc_str_push_cstr(usage_string, "\t\t\t");
             nocc_str_push_cstr(usage_string, program->arguments[i].description);
             if(program->arguments[i].default_) {
                 nocc_str_push_cstr(usage_string, " (default=");
@@ -572,13 +481,25 @@ bool nocc_ap_usage(nocc_argparse_command* program) {
         nocc_str_push_cstr(usage_string, "\n\n");
         nocc_str_push_cstr(usage_string, "Options:\n");
         for(size_t i = 0; i < program->options_size; i++) {
-            nocc_str_push_cstr(usage_string, "\t-");
-            nocc_str_push_char(usage_string, program->options[i].short_name);
-            nocc_str_push_cstr(usage_string, ", --");
-            nocc_str_push_cstr(usage_string, program->options[i].long_name);
-            nocc_str_push_cstr(usage_string, "\t\t\t");
-            nocc_str_push_cstr(usage_string, program->options[i].description);
-            nocc_str_push_char(usage_string, '\n');
+            if(program->options[i]._type == NOCC_APT_SWITCH) {
+                for(size_t j = 0; j < program->options[i]._length_children; j++) {
+                    nocc_str_push_cstr(usage_string, "\t-");
+                    nocc_str_push_char(usage_string, program->options[i]._children[j].short_name);
+                    nocc_str_push_cstr(usage_string, ", --");
+                    nocc_str_push_cstr(usage_string, program->options[i]._children[j].name);
+                    nocc_str_push_cstr(usage_string, "\t\t\t");
+                    nocc_str_push_cstr(usage_string, program->options[i]._children[j].description);
+                    nocc_str_push_char(usage_string, '\n');
+                }
+            } else {
+                    nocc_str_push_cstr(usage_string, "\t-");
+                    nocc_str_push_char(usage_string, program->options[i].short_name);
+                    nocc_str_push_cstr(usage_string, ", --");
+                    nocc_str_push_cstr(usage_string, program->options[i].name);
+                    nocc_str_push_cstr(usage_string, "\t\t\t");
+                    nocc_str_push_cstr(usage_string, program->options[i].description);
+                    nocc_str_push_char(usage_string, '\n');
+            }
         }
     }
 
@@ -868,6 +789,173 @@ size_t _nocc_da_stride(void* array) {
     return header->stride;
 }
 #endif // _NOCC_USE_ARRAY_IMPLEMENTATION
+
+// ARGPARSE IMPLEMENTATION BEGIN
+
+bool _nocc_ap_parse_rec(nocc_argparse_opt* command, int beg, nocc_darray(char*) args) {
+    nocc_assert(command, "command cannot be NULL");
+    nocc_assert(args, "argv cannot be NULL");
+
+    while(nocc_da_size(args) != 0) {
+        char* arg = args[0];
+
+        if (command->_kind != NOCC_APK_COMMAND) {
+            nocc_assert(false, "Unknown argparse kind");
+            return false;
+        } 
+        
+        if(command->commands) {
+            nocc_argparse_opt cmd;
+            for(size_t i = 0; i < command->commands_size; i++) {
+                cmd = command->commands[i];
+
+                if(strcmp(cmd.name, arg) != 0)
+                    continue;
+                
+                *(bool*)(cmd.output_ptr) = true;
+                nocc_da_remove(args, beg, NULL);
+                return _nocc_ap_parse_rec(&cmd, beg, args);
+            }
+        }
+
+        if(_nocc_ap_parse_option(command, beg, args, arg)) {
+            goto next_iteration;
+        }
+
+        _nocc_ap_parse_argument(command, beg, args, arg);
+
+    next_iteration:
+        continue;
+    }
+
+    _nocc_ap_set_default(command);
+
+    return true;
+}
+
+bool _nocc_ap_find_if_is_long(char c) {
+    return c == '-';
+}
+
+bool _nocc_ap_get_option_status(nocc_argparse_opt* opt, bool is_long, char* arg) {
+    if(is_long == false) {
+        if(opt->short_name != arg[1]) {
+            return false;
+        }
+    } else {
+        if(strcmp(opt->name, arg + 2) != 0) {
+            return false;
+        } 
+    }
+    
+    return true;
+}
+
+bool _nocc_ap_parse_option(nocc_argparse_opt* command, int beg, nocc_darray(char*) args, char* arg) {
+    if(command->options == NULL) return false;
+    if(arg[0] != '-') return false;
+    
+    for(size_t i = 0; i < command->options_size; i++) {
+        nocc_argparse_opt opt = command->options[i];
+        bool is_long = _nocc_ap_find_if_is_long(arg[1]);
+
+        switch (opt._type)
+        {
+        case NOCC_APT_BOOLEAN: {
+            bool status = _nocc_ap_get_option_status(&opt, is_long, arg);
+            if(!status)
+                break;
+            *(bool*)(opt.output_ptr) = true;
+            nocc_da_remove(args, beg, NULL);
+            return true;
+
+        } break;
+        case NOCC_APT_SWITCH: {
+            // switch has suboptions
+            for(size_t i = 0; i < opt._length_children; i++) {
+                bool status = _nocc_ap_get_option_status(&(opt._children[i]), is_long, arg);
+                if(!status)
+                    continue;
+                *(char**)(opt.output_ptr) = opt._children[i].name;
+                nocc_da_remove(args, beg, NULL);
+                return true;
+            }
+        } break;
+        default:
+            break;
+        }
+    }
+
+    return false;
+}
+
+bool _nocc_ap_parse_argument(nocc_argparse_opt* command, int beg, nocc_darray(char*) args, char* arg) {
+    if(command->arguments == NULL) return false;
+
+    for(size_t i = 0; i < command->arguments_size; i++) {
+        nocc_argparse_opt argument = command->arguments[i];
+
+        *(char**)(argument.output_ptr) = arg;
+        nocc_da_remove(args, beg, NULL);
+        return true;
+    }
+
+    return false;
+}
+
+void _nocc_ap_set_default_option(nocc_argparse_opt* command) {
+    if(command->options == NULL) return;
+
+    for(size_t i = 0; i < command->options_size; i++) {
+        nocc_argparse_opt opt = command->options[i];
+        
+        if(opt.default_ == NULL)
+            continue;
+
+        switch (opt._type)
+        {
+        case NOCC_APT_BOOLEAN:
+            if(opt.output_ptr != NULL)
+                break;
+            *(bool*)opt.output_ptr = *(bool*)opt.default_;
+            break;
+
+        case NOCC_APT_STRING:
+        case NOCC_APT_SWITCH:
+            if(*(char**)opt.output_ptr != NULL)
+                break;
+            *(char**)opt.output_ptr = (char*)opt.default_;
+            break;
+        
+        case NOCC_APT_FLOAT:
+        case NOCC_APT_NUMBER:
+        case NOCC_APT_UNKNOWN:
+        case NOCC_APT_ARRAY:
+        default:
+            nocc_assert(false, "Unknown type");
+            break;
+        }
+    }
+
+}
+
+void _nocc_ap_set_default_argument(nocc_argparse_opt* command) {
+    if(command->arguments == NULL) return;
+
+    for(size_t i = 0; i < command->arguments_size; i++) {
+        nocc_argparse_opt arg = command->arguments[i];
+        if(*(char**)arg.output_ptr == NULL && arg.default_) {
+            *(char**)(arg.output_ptr) = arg.default_;
+        }
+    }
+}
+
+void _nocc_ap_set_default(nocc_argparse_opt* command) {
+    _nocc_ap_set_default_option(command);
+    _nocc_ap_set_default_argument(command);
+}
+
+// END ARGPARSE IMPLEMENTATION BEGIN
 
 // FILE IMPLEMENTATION 
 
