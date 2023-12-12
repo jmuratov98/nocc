@@ -3,83 +3,138 @@
 #include <string.h>
 #include <stdio.h>
 
-static const char* usage = 
-"usage nocc\n"
-"\n"
-"commands:\n"
-"\tbuild\t\tbuilds the project\n"
-"\n"
-"options:\n"
-"\t-h,--help\t\tprints this message\n"
-"\t-v,--version\t\tprints the version of the software";
-
-static const char* build_usage = 
-"usage nocc build\n"
-"\n"
-"options:\n"
-"\t-d,--debug\t\tbuilds as a debug build\n"
-"\t-d,--release\t\tbuilds as a release build\n"
-"\t   --dist\t\tbuilds as a dist build\n"
-"\t-h,--help\t\tprints this message\n";
-
 const char* BINARY_PATH = "./bin"; 
 
-bool build_helloworlds();
+typedef struct {
+    bool build;
+    bool run;
+    bool help;
+    bool version;
+    char* config;
+    char* project_name;
+} nocc_ap_parse_result;
+
+bool build_helloworlds(nocc_ap_parse_result* result);
+bool run_helloworlds(nocc_ap_parse_result* result);
 
 int main(int argc, char** argv) {
-    if(argc < 2) {
-        printf("%s", usage);
-        return 1;
+    nocc_ap_parse_result result = {};
+
+    nocc_argparse_opt switch_args[] = {
+        nocc_ap_opt_boolean('d', "debug", "Builds the program as a debug build", NULL, NULL),
+        nocc_ap_opt_boolean('r', "release", "Builds the program as a release build", NULL, NULL)
+    };
+
+    nocc_argparse_opt build_options[] = {
+        nocc_ap_opt_switch(switch_args, "debug", &(result.config)),
+        nocc_ap_opt_boolean('h', "help", "Prints this message", NULL, &(result.help))
+    };
+
+    nocc_argparse_opt build_arguments[] = {
+        nocc_ap_arg_string("project_name", "Builds the project", "all", &(result.project_name))
+    };
+
+    nocc_argparse_opt run_options[] = {
+        nocc_ap_opt_boolean('h', "help", "Prints this message", NULL, &(result.help))
+    };
+
+    nocc_argparse_opt program_options[] = {
+        nocc_ap_opt_boolean('h', "help", "Prints this message", NULL, &(result.help)),
+        nocc_ap_opt_boolean('v', "version", "Prints the software version", NULL, &(result.version))
+    };
+
+    nocc_argparse_opt subcommands[] = { 
+        nocc_ap_cmd("build", "Builds the project", build_options, build_arguments, NULL, &(result.build)),
+        nocc_ap_cmd("run", "runs the project", run_options, NULL, NULL, &(result.run))
+    };
+
+    nocc_argparse_opt program = nocc_ap_cmd("nocc", "Building, linking, and running all your favorite code", program_options, NULL, subcommands, NULL);
+
+
+    nocc_ap_parse(&program, argc, argv);
+
+    int status = 0;
+
+    if(result.build) {
+        if(result.help) {
+            nocc_ap_usage(&program.commands[0]);
+            goto failure;
+        }
+
+        if(strcmp(result.project_name, "helloworld") == 0 || strcmp(result.project_name, "all") == 0) {
+            if(!build_helloworlds(&result)) {
+                nocc_error("unable to build helloworld");
+                status = 1;
+                goto failure;
+            }
+
+        }
     }
 
-    // TODO: Make a CLI parser. 
-    // For now, i am assuming, that if you want help you will only
-    // put --help or -h. 
-    if(strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0) {
-        printf("%s", usage);
-        return 0;
+    else if (result.run) {
+        if(result.help) {
+            nocc_ap_usage(&program.commands[1]);
+            goto failure;
+        }
+
+        if(!run_helloworlds(&result)) {
+            nocc_error("unable to run helloworld");
+            status = 1;
+            goto failure;
+        }
     }
 
-    // TODO: Make a CLI parser. 
-    // For now, i am assuming, that if you want the version you will only
-    // put --version or -v. 
-    if(strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-v") == 0) {
+    else if(result.help) {
+        nocc_ap_usage(&program);
+        goto failure;
+    }
+
+    else if(result.version) {
         printf("%s", NOCC_VERSION);
-        return 0;
-    }
-
-    if(strcmp(argv[1], "build") == 0) {
-        if(argc == 3 && (strcmp(argv[2], "--help") == 0 || strcmp(argv[2], "-h") == 0)) {
-            printf("%s", build_usage);
-            return 0;
-        }
-
-        if(!build_helloworlds()) {
-            nocc_error("unable to build helloworld");
-            return 1;
-        }
+        goto failure;
     }
 
     else {
-        printf("%s", usage);
-        return 1;
+        nocc_ap_usage(&program);
+        status = 1;
+        goto failure;
     }
 
+failure:
     return 0;
 }
 
-bool build_helloworlds() {
+bool build_helloworlds(nocc_ap_parse_result* result) {
     static const char* TARGET_DIR = "./helloworld.exe";
     
     const char* hellworld_c = "./helloworld.c";
 
     nocc_darray(const char*) cmd = nocc_da_create(const char*);
+
+    printf("Building helloworld.c\n");
     nocc_cmd_add(cmd, "clang");
+    if(strcmp(result->config, "debug") == 0) {
+        nocc_cmd_add(cmd, "-g", "-O0");
+    } else if(strcmp(result->config, "release") == 0){ 
+        nocc_cmd_add(cmd, "-O2");
+    }
     nocc_cmd_add(cmd, hellworld_c, "-o", TARGET_DIR);
 
     nocc_cmd_execute(cmd);
 
     nocc_da_free(cmd);
 
-    return 1;
+    return true;
+}
+
+bool run_helloworlds(nocc_ap_parse_result* result) {
+    printf("Running helloworld.c\n");
+    nocc_darray(const char*) cmd = nocc_da_create(const char*);
+    nocc_cmd_add(cmd, ".\\helloworld.exe");
+    
+    nocc_cmd_execute(cmd);
+
+    nocc_da_free(cmd);
+
+    return true;
 }

@@ -16,8 +16,11 @@ The code is poorly written. It took me two days to write the script. There some 
 ## TODO ##
 * [ ] Fix the anoying bugs. For which I don't understand what's happening.
 * [ ] Add filters because if you build your project and compile it into the same folder, there are going to be compilation issues. Because, i'm just getting everything from the source folder and not filtering it for certain files.
-* [ ] Add an actual CLI parser. 
+* [x] Add an actual CLI parser.
+    * [x] There is a CLI parser and it does work.
+    * [ ] Be able to parse arguments for options. For example, --cheese=mozzerella or --age 24; both should be valid. (Don't really need this for this project)
+    * [x] Change it from being a heap based CLI parser to a stack based CLI parser. (Removed the heap allocated CLI parser!)
 * [ ] Add the ability for nocc to only compile certain files, and not the entire project over again
     * [ ] To do this the easiest (and the only way I know how to) is to differentiate the time from the source and executable. That's how make works, I think.
-* [ ] Add the ability to build itself. Rather than recompiling the file.
+* [ ] Add the ability to build itself. Rather than recompiling the file (I know its possible, but I have to my research on it).
 * [ ] What would be cool, is to implement a -w flag, that watches for a change of any file in the program and recompiles the project. I don't know how cool this would be, but it would certainly be nice when developing a console application, you wouldn't have to type a command to recompile it. This would be annoying especially in big projects when compiling takes minutes.

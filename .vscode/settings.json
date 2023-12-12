@@ -1,0 +1,7 @@
+{
+    "C_Cpp.errorSquiggles": "disabled",
+    "files.associations": {
+        "stdarg.h": "c",
+        "nocc2.h": "c"
+    }
+}

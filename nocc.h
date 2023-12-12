@@ -23,9 +23,9 @@
 
 // DEFS
 #define NOCC_VERSION_MAJOR      0
-#define NOCC_VERSION_MINOR      1
+#define NOCC_VERSION_MINOR      2
 #define NOCC_VERSION_PATCH      "0-a.0"
-#define NOCC_VERSION            "0.0.0-a.0"
+#define NOCC_VERSION            "0.2.0-a.0"
 
 #define NOCC_INIT_CAP           10
 
@@ -42,7 +42,7 @@ typedef enum {
 } nocc_log_level;
 
 #define buffer_size  1024
-int nocc_log_output(nocc_log_level level, const char* fmt, ...) {
+int _nocc_log_output(nocc_log_level level, const char* fmt, ...) {
     static const char* levels[NOCC_LOG_LEVEL_OFF] = { "trace", "debug", "info", "warn", "error" };
     char buffer[buffer_size] = {0};
 
@@ -55,11 +55,20 @@ int nocc_log_output(nocc_log_level level, const char* fmt, ...) {
     return status;
 }
 
-#define nocc_trace(fmt, ...)    nocc_log_output(NOCC_LOG_LEVEL_TRACE, fmt, ##__VA_ARGS__)
-#define nocc_debug(fmt, ...)    nocc_log_output(NOCC_LOG_LEVEL_DEBUG, fmt, ##__VA_ARGS__)
-#define nocc_info(fmt, ...)     nocc_log_output(NOCC_LOG_LEVEL_INFO, fmt, ##__VA_ARGS__)
-#define nocc_warn(fmt, ...)     nocc_log_output(NOCC_LOG_LEVEL_WARN, fmt, ##__VA_ARGS__)
-#define nocc_error(fmt, ...)    nocc_log_output(NOCC_LOG_LEVEL_ERROR, fmt, ##__VA_ARGS__)
+/**
+ * @brief Logs a formatted output to the console. Either as a 'trace', 'debug', 'info', 'warn', or 'error'.
+ * 
+ * @param {const char*} fmt -- the formatted output
+ * @param {...} ... -- the arguments which get formatted.
+ * 
+ * @return {int} returns the amount of bytes printed to the console.
+ * 
+*/
+#define nocc_trace(fmt, ...)    _nocc_log_output(NOCC_LOG_LEVEL_TRACE, fmt, ##__VA_ARGS__)
+#define nocc_debug(fmt, ...)    _nocc_log_output(NOCC_LOG_LEVEL_DEBUG, fmt, ##__VA_ARGS__)
+#define nocc_info(fmt, ...)     _nocc_log_output(NOCC_LOG_LEVEL_INFO, fmt, ##__VA_ARGS__)
+#define nocc_warn(fmt, ...)     _nocc_log_output(NOCC_LOG_LEVEL_WARN, fmt, ##__VA_ARGS__)
+#define nocc_error(fmt, ...)    _nocc_log_output(NOCC_LOG_LEVEL_ERROR, fmt, ##__VA_ARGS__)
 
 #ifdef NOCC_DEBUG
     #define NOCC_ENABLE_ASSERTS
@@ -76,59 +85,435 @@ int nocc_log_output(nocc_log_level level, const char* fmt, ...) {
 #else
     #define nocc_assert(x, ...)
 #endif // NOCC_ENABLE_ASSERTS
-
-
 // Logging End ============================================================
 
 // Array Begin ==========================================================
+// This is private and should not be unitilized
 typedef struct {
     size_t capacity, size, stride;
 } _nocc_da_header;
 
+// A helper function to calculate the head of the pointer. This is private and should not be utilized
 #define _nocc_da_calc_header(a) (_nocc_da_header*)((uint8_t*)(a) - sizeof(_nocc_da_header));
 
+// Since these function 
 void* _nocc_da_reserve(size_t stride, size_t cap);
 void  _nocc_da_free(void* array);
 void* _nocc_da_push(void* array, void* value);
 void* _nocc_da_pushn(void* array, size_t n, void* value);
 void* _nocc_da_grow(void* array, size_t new_capacity);
+void* _nocc_da_remove(void* array, size_t index, void* ouput_ptr);
 size_t _nocc_da_size(void* array);
 size_t _nocc_da_capacity(void* array);
 size_t _nocc_da_stride(void* array);
 
+/**
+ * @brief a wrapper. To use this as the type. Think of std::vector<T> in C++
+*/
 #define nocc_darray(T) T*
 
+/**
+ * @brief Creates an array with a stated capacity
+ * 
+ * @param {T} type -- the type of the array to reserve
+ * @param {size_t} cap -- The capacity of the array
+ * 
+ * @return {void*} returns the newly constructed array or NULL if the creation failed.
+ * 
+*/
 #define nocc_da_reserve(T, cap)                 _nocc_da_reserve(sizeof(T), cap)
+
+/**
+ * @brief Creates an array with a capacity of 10.
+ * 
+ * @param {T} type -- the type of the array to reserve
+ * 
+ * @return {void*} returns the newly constructed array or NULL if the creation failed.
+ * 
+*/
 #define nocc_da_create(T)                       nocc_da_reserve(T, NOCC_INIT_CAP)
+
+/**
+ * @brief Frees the array. If the elements were allocated on the heap. The user must free them.
+ * 
+ * @param {void*} array -- the type of the array to reserve
+ * 
+ * @return {void}
+ * 
+*/
 #define nocc_da_free(a)                         _nocc_da_free(a);
 
+/**
+ * @brief Pushs the value to the end of the array. Think std::vector::push_back
+ * 
+ * @param {void*} a -- The array
+ * @param {void*} v -- The value to add to the array.
+ * 
+ * @return {void}
+*/
 #define nocc_da_push(a, v) {                    \
     typeof((v)) temp = (v);                     \
     a = _nocc_da_push(a, &temp);                \
 }
 
+/**
+ * @brief Pushs the value to the end of the array. Think std::vector::push_back
+ * 
+ * @param {void*} a -- The array
+ * @param {size_t} n -- The amount of elements to add.
+ * @param {void*} v -- The values (as an array) to add to the array.
+ * 
+ * @return {void}
+*/
 #define nocc_da_pushn(a, n, v)                  { a = _nocc_da_pushn(a, n, v); }
+
+/**
+ * @brief Pushs the value to the end of the array. Think std::vector::push_back
+ * 
+ * @param {void*} a -- The array
+ * @param {...} ... -- The values to add to the array.
+ * 
+ * @return {void}
+*/
 #define nocc_da_push_many(a, ...)               { a = _nocc_da_pushn(a, sizeof((typeof(__VA_ARGS__)[]){__VA_ARGS__}) / nocc_da_stride(a), (typeof(__VA_ARGS__)[]){__VA_ARGS__}); }
 
+/**
+ * @brief Removes the element from the array
+ * 
+ * @param {void*} a -- The array
+ * @param {size_t} index -- The index of the array to remove
+ * @param {void*} output_ptr -- the pointer to the element, that was removed 
+ * 
+ * @return {void}
+*/
+#define nocc_da_remove(a, i, op)               { a = _nocc_da_remove((a), (i), (op)); }
+
+/**
+ * @brief returns the size of the array
+ * 
+ * @param {void*} a -- The array
+ * 
+ * @return {size_t} The size of the array
+ * 
+*/
 #define nocc_da_size(a)                 _nocc_da_size(a)
+
+/**
+ * @brief returns the capacity of the array
+ * 
+ * @param {void*} a -- The array
+ * 
+ * @return {size_t} The capacity of the array
+ * 
+*/
 #define nocc_da_capacity(a)             _nocc_da_capacity(a)
+
+/**
+ * @brief returns the stride of the array
+ * 
+ * @param {void*} a -- The array
+ * 
+ * @return {size_t} The stride of the array
+ * 
+*/
 #define nocc_da_stride(a)               _nocc_da_stride(a)
 // Array End ============================================================
 
 // String Begin ==========================================================
+/**
+ * @brief the type of the string
+ * 
+ * TODO: what would be cool is to allow wide strings as well, such as wchar_t
+*/
 #define nocc_string char*
+
+/**
+ * @brief Creates a string with a capacity. This is just a wrapper of the array class from above
+ * 
+ * @param {size_t} cap -- The amount to reserve the array with
+ * 
+ * @return {void*} The newly created string
+ * 
+ * TODO: what would be cool is to allow wide strings as well, such as wchar_t
+*/
 #define nocc_str_reserve(cap)               nocc_da_reserve(char, cap)
+
+/**
+ * @brief Creates a string with a predefined capacity. This is just a wrapper of the array class from above
+ * 
+ * @return {void*} The newly created string
+ * 
+ * TODO: what would be cool is to allow wide strings as well, such as wchar_t
+*/
 #define nocc_str_create()                   nocc_da_reserve(char, NOCC_INIT_CAP)
+
+/**
+ * @brief Frees the string. This is just a wrapper of the array class from above
+ * 
+ * @param {void*} str -- The string
+ * 
+ * @return {void}
+ * 
+*/
 #define nocc_str_free(str)                  nocc_da_free(str)
 
+/**
+ * @brief Pushes a character to the end of the string. This is just a wrapper of the array class from above
+ * 
+ * @param {void*} str -- The string
+ * @param {char} c -- The character to add
+ * 
+ * @return {void}
+*/
 #define nocc_str_push_char(str, c)          nocc_da_push(str, c)
+
+/**
+ * @brief Pushes a '\0' character to the end of the string. Without it, the string could not be used as a C string. This is just a wrapper of the array class from above
+ * 
+ * @param {void*} str -- The string
+ * 
+ * @return {void}
+*/
 #define nocc_str_push_null(str)             nocc_da_push(str, '\0')
+
+/**
+ * @brief Pushes a C string to the end of the string. This is just a wrapper of the array class from above
+ * 
+ * @param {void*} str -- The string
+ * @param {char*} s -- The string to add
+ * 
+ * @return {void}
+*/
 #define nocc_str_push_cstr(str, s)          nocc_da_pushn(str, strlen(s), s);
 
+/**
+ * @brief Gets the size of the string. This is just a wrapper of the array class from above
+ * 
+ * @param {void*} str -- The string
+ * 
+ * @return {size_t} the size/length of the string.
+*/
 #define nocc_str_size(s)                    nocc_da_size
+
+/**
+ * @brief Gets the capacity of the string. This is just a wrapper of the array class from above
+ * 
+ * @param {void*} str -- The string
+ * 
+ * @return {size_t} the capacity of the string. The total it can carry until needing to resize the string.
+*/
 #define nocc_str_capacity(s)                nocc_da_capacity
+
+/**
+ * @brief Gets the stride of the string. This is just a wrapper of the array class from above
+ * 
+ * @param {void*} str -- The string
+ * 
+ * @return {size_t} the stride of each element of the string.
+*/
+
 #define nocc_str_stride(s)                  nocc_da_stride
 // String End ============================================================
+
+// Argument Parsing Begin =================================================
+
+typedef enum {
+    NOCC_APT_UNKNOWN = 0,
+
+    // BASE TYPES
+    NOCC_APT_BOOLEAN, NOCC_APT_NUMBER, NOCC_APT_FLOAT, NOCC_APT_STRING,
+    
+    // COMPLEX TYPES
+    NOCC_APT_ARRAY,     // TODO: Implement this later...
+
+    /**
+     * @brief the idea of this is allow for a flag to imply some thing else. For example, --debug flag
+     * may be interpreted as to config="debug" (depending on the pointer that is put in)
+    */
+    NOCC_APT_SWITCH,  
+} _nocc_argparse_type;
+
+#define _USE_NEW_ARGPARSE_ 
+typedef enum {
+    NOCC_APK_UNKNOWN = 0,
+    NOCC_APK_OPTION, NOCC_APK_ARGUMENT, NOCC_APK_COMMAND
+} _nocc_argparse_kind;
+
+typedef struct nocc_argparse_opt {
+    const char* name;             // long_name for your options;
+    const char* description;
+    void* output_ptr;
+
+    // internal        
+    _nocc_argparse_kind _kind;
+    void* default_;
+
+    union {
+        // Options
+        struct {
+            char short_name;
+            _nocc_argparse_type _type;
+            struct nocc_argparse_opt* _children;
+            size_t _length_children;
+        };
+
+        // Argument
+
+        // Command
+        struct {
+            nocc_darray(struct nocc_argparse_opt) arguments;
+            size_t arguments_size;
+            nocc_darray(struct nocc_argparse_opt) options;
+            size_t options_size;
+            nocc_darray(struct nocc_argparse_opt) commands;
+            size_t commands_size;
+        };
+    };
+
+} nocc_argparse_opt;
+
+#define nocc_ap_opt_boolean(sn, ln, desc, def, op) { ._kind=NOCC_APK_OPTION, ._type=NOCC_APT_BOOLEAN, .short_name=(sn), .name=(ln), .description=(desc), .default_=(def), .output_ptr=(op), ._children=NULL, ._length_children=0 }
+#define nocc_ap_opt_switch(a, def, op) { ._kind=NOCC_APK_OPTION, ._type=NOCC_APT_SWITCH, .short_name=0, .name=NULL, .description=NULL, .default_=(def), .output_ptr=(op), ._children=(a), ._length_children=(sizeof(a) / sizeof(nocc_argparse_opt)) }
+
+#define nocc_ap_arg_string(n, d, def, op) { ._kind=NOCC_APK_ARGUMENT, ._type=NOCC_APT_STRING, .name=(n), .description=(d), .default_=(def), .output_ptr=(op) }
+
+#define nocc_ap_cmd(n, d, o, a, c, op) {                                                \
+    ._kind = NOCC_APK_COMMAND,                                                          \
+    .name = (n),                                                                        \
+    .description = (d),                                                                 \
+    .options = (o), .options_size = (sizeof(o) / sizeof(nocc_argparse_opt)),            \
+    .arguments = (a), .arguments_size = (sizeof(a) / sizeof(nocc_argparse_opt)),        \
+    .commands = (c), .commands_size = (sizeof(c) / sizeof(nocc_argparse_opt)),          \
+    .default_ = NULL,                                                                   \
+    .output_ptr = (op)                                                                  \
+}
+
+bool _nocc_ap_parse_rec(nocc_argparse_opt* command, int beg, nocc_darray(char*) args);
+inline bool _nocc_ap_find_if_is_long(char c);
+bool _nocc_ap_get_option_status(nocc_argparse_opt* opt, bool is_long, char* arg);
+bool _nocc_ap_parse_option(nocc_argparse_opt* command, int beg, nocc_darray(char*) args, char* arg);
+bool _nocc_ap_parse_argument(nocc_argparse_opt* command, int beg, nocc_darray(char*) args, char* arg);
+void _nocc_ap_set_default_option(nocc_argparse_opt* command);
+void _nocc_ap_set_default_argument(nocc_argparse_opt* command);
+void _nocc_ap_set_default(nocc_argparse_opt* command);
+
+/**
+ * @brief Parses the options, arguments, and subcommands. If you call this function call this function with the main command rather than a subcommand.
+ * This function parses it recursively. So you have to call this function once. And it will do all the work for you.
+ * 
+ * @param {nocc_argparse_command*} program -- The command to parse.
+ * @param {int} argc -- The arg counter passed into main, or __argc.
+ * @param {char**} argv -- The variadic arguments passed into main or __argv.
+ * 
+ * @return {bool}
+*/
+bool nocc_ap_parse(nocc_argparse_opt* program, int argc, char** argv) {
+    nocc_darray(char*) args = nocc_da_reserve(char*, argc - 1);
+    nocc_da_pushn(args, argc - 1, argv + 1);
+
+    bool status = _nocc_ap_parse_rec(program, 0, args);
+
+    nocc_da_free(args);
+    return status;
+}
+
+/**
+ * @brief Creates the usage string and prints the usage to output.
+ * 
+ * @param {nocc_argparse_opt*} program -- The command to usageify.
+ * 
+ * @return {bool}
+*/
+bool nocc_ap_usage(nocc_argparse_opt* program) {
+    if(program->_kind != NOCC_APK_COMMAND) return false;
+
+    nocc_string usage_string = nocc_str_create();
+    
+    nocc_str_push_cstr(usage_string, "Usage: ");
+    nocc_str_push_cstr(usage_string, program->name);
+    if(program->commands) {
+        nocc_str_push_char(usage_string, ' ');
+        nocc_str_push_cstr(usage_string, "<command>");
+    }
+    if(program->arguments) {
+        nocc_str_push_char(usage_string, ' ');
+        nocc_str_push_cstr(usage_string, "[<arguments>]");
+    }
+    if(program->options) {
+        nocc_str_push_char(usage_string, ' ');
+        nocc_str_push_cstr(usage_string, "[options]");
+    }
+    nocc_str_push_cstr(usage_string, "\n\n");
+
+    nocc_str_push_cstr(usage_string, program->description);
+
+    if(program->commands) {
+        nocc_str_push_cstr(usage_string, "\n\n");
+        nocc_str_push_cstr(usage_string, "Commands:\n");
+        for(size_t i = 0; i < program->commands_size; i++) {
+            nocc_str_push_char(usage_string, '\t');
+            nocc_str_push_cstr(usage_string, program->commands[i].name);
+            nocc_str_push_cstr(usage_string, "\t\t\t\t");
+            nocc_str_push_cstr(usage_string, program->commands[i].description);
+            nocc_str_push_char(usage_string, '\n');
+        }
+    }
+
+    if(program->arguments) {
+        nocc_str_push_cstr(usage_string, "\n\n");
+        nocc_str_push_cstr(usage_string, "Arguments:\n");
+        for(size_t i = 0; i < program->arguments_size; i++) {
+            nocc_str_push_char(usage_string, '\t');
+            nocc_str_push_cstr(usage_string, program->arguments[i].name);
+            nocc_str_push_cstr(usage_string, "\t\t\t");
+            nocc_str_push_cstr(usage_string, program->arguments[i].description);
+            if(program->arguments[i].default_) {
+                nocc_str_push_cstr(usage_string, " (default=");
+                nocc_str_push_cstr(usage_string, program->arguments[i].default_);
+                nocc_str_push_char(usage_string, ')');
+            }
+            nocc_str_push_char(usage_string, '\n');
+
+        }
+    }
+
+    if(program->options) {
+        nocc_str_push_cstr(usage_string, "\n\n");
+        nocc_str_push_cstr(usage_string, "Options:\n");
+        for(size_t i = 0; i < program->options_size; i++) {
+            if(program->options[i]._type == NOCC_APT_SWITCH) {
+                for(size_t j = 0; j < program->options[i]._length_children; j++) {
+                    nocc_str_push_cstr(usage_string, "\t-");
+                    nocc_str_push_char(usage_string, program->options[i]._children[j].short_name);
+                    nocc_str_push_cstr(usage_string, ", --");
+                    nocc_str_push_cstr(usage_string, program->options[i]._children[j].name);
+                    nocc_str_push_cstr(usage_string, "\t\t\t");
+                    nocc_str_push_cstr(usage_string, program->options[i]._children[j].description);
+                    nocc_str_push_char(usage_string, '\n');
+                }
+            } else {
+                    nocc_str_push_cstr(usage_string, "\t-");
+                    nocc_str_push_char(usage_string, program->options[i].short_name);
+                    nocc_str_push_cstr(usage_string, ", --");
+                    nocc_str_push_cstr(usage_string, program->options[i].name);
+                    nocc_str_push_cstr(usage_string, "\t\t\t");
+                    nocc_str_push_cstr(usage_string, program->options[i].description);
+                    nocc_str_push_char(usage_string, '\n');
+            }
+        }
+    }
+
+    nocc_str_push_null(usage_string);
+
+    printf("%s", usage_string);
+
+    nocc_str_free(usage_string);
+    return true;
+}
+
+// Argument Parsing End ===================================================
+
+// File Begins ============================================================
 
 typedef enum {
     NOCC_FT_UNKNOWN,
@@ -364,6 +749,28 @@ void* _nocc_da_grow(void* array, size_t new_capacity) {
    return (void*)((uint8_t*)temp + header_size); 
 }
 
+void* _nocc_da_remove(void* array, size_t index, void* output_ptr) {
+    nocc_assert(array, "Please enter a valid array");
+    nocc_assert(index >= 0 && index < nocc_da_size(array));
+    _nocc_da_header* header = _nocc_da_calc_header(array);
+    
+    uint64_t addr = (uint64_t)array;
+    if(output_ptr != NULL) {
+        memcpy(output_ptr, (array + index), header->stride);
+    }
+
+    if(index != header->size - 1) {
+        memmove(
+            (void*)(addr + (index * header->stride)),
+            (void*)(addr + ((index + 1) * header->stride)),
+            header->stride * (header->size - (index - 1))
+        );
+    }
+
+    header->size--;
+    return array;
+}
+
 size_t _nocc_da_size(void* array) {
     nocc_assert(array, "Please enter a valid array");
     _nocc_da_header* header = _nocc_da_calc_header(array);
@@ -382,6 +789,173 @@ size_t _nocc_da_stride(void* array) {
     return header->stride;
 }
 #endif // _NOCC_USE_ARRAY_IMPLEMENTATION
+
+// ARGPARSE IMPLEMENTATION BEGIN
+
+bool _nocc_ap_parse_rec(nocc_argparse_opt* command, int beg, nocc_darray(char*) args) {
+    nocc_assert(command, "command cannot be NULL");
+    nocc_assert(args, "argv cannot be NULL");
+
+    while(nocc_da_size(args) != 0) {
+        char* arg = args[0];
+
+        if (command->_kind != NOCC_APK_COMMAND) {
+            nocc_assert(false, "Unknown argparse kind");
+            return false;
+        } 
+        
+        if(command->commands) {
+            nocc_argparse_opt cmd;
+            for(size_t i = 0; i < command->commands_size; i++) {
+                cmd = command->commands[i];
+
+                if(strcmp(cmd.name, arg) != 0)
+                    continue;
+                
+                *(bool*)(cmd.output_ptr) = true;
+                nocc_da_remove(args, beg, NULL);
+                return _nocc_ap_parse_rec(&cmd, beg, args);
+            }
+        }
+
+        if(_nocc_ap_parse_option(command, beg, args, arg)) {
+            goto next_iteration;
+        }
+
+        _nocc_ap_parse_argument(command, beg, args, arg);
+
+    next_iteration:
+        continue;
+    }
+
+    _nocc_ap_set_default(command);
+
+    return true;
+}
+
+bool _nocc_ap_find_if_is_long(char c) {
+    return c == '-';
+}
+
+bool _nocc_ap_get_option_status(nocc_argparse_opt* opt, bool is_long, char* arg) {
+    if(is_long == false) {
+        if(opt->short_name != arg[1]) {
+            return false;
+        }
+    } else {
+        if(strcmp(opt->name, arg + 2) != 0) {
+            return false;
+        } 
+    }
+    
+    return true;
+}
+
+bool _nocc_ap_parse_option(nocc_argparse_opt* command, int beg, nocc_darray(char*) args, char* arg) {
+    if(command->options == NULL) return false;
+    if(arg[0] != '-') return false;
+    
+    for(size_t i = 0; i < command->options_size; i++) {
+        nocc_argparse_opt opt = command->options[i];
+        bool is_long = _nocc_ap_find_if_is_long(arg[1]);
+
+        switch (opt._type)
+        {
+        case NOCC_APT_BOOLEAN: {
+            bool status = _nocc_ap_get_option_status(&opt, is_long, arg);
+            if(!status)
+                break;
+            *(bool*)(opt.output_ptr) = true;
+            nocc_da_remove(args, beg, NULL);
+            return true;
+
+        } break;
+        case NOCC_APT_SWITCH: {
+            // switch has suboptions
+            for(size_t i = 0; i < opt._length_children; i++) {
+                bool status = _nocc_ap_get_option_status(&(opt._children[i]), is_long, arg);
+                if(!status)
+                    continue;
+                *(char**)(opt.output_ptr) = opt._children[i].name;
+                nocc_da_remove(args, beg, NULL);
+                return true;
+            }
+        } break;
+        default:
+            break;
+        }
+    }
+
+    return false;
+}
+
+bool _nocc_ap_parse_argument(nocc_argparse_opt* command, int beg, nocc_darray(char*) args, char* arg) {
+    if(command->arguments == NULL) return false;
+
+    for(size_t i = 0; i < command->arguments_size; i++) {
+        nocc_argparse_opt argument = command->arguments[i];
+
+        *(char**)(argument.output_ptr) = arg;
+        nocc_da_remove(args, beg, NULL);
+        return true;
+    }
+
+    return false;
+}
+
+void _nocc_ap_set_default_option(nocc_argparse_opt* command) {
+    if(command->options == NULL) return;
+
+    for(size_t i = 0; i < command->options_size; i++) {
+        nocc_argparse_opt opt = command->options[i];
+        
+        if(opt.default_ == NULL)
+            continue;
+
+        switch (opt._type)
+        {
+        case NOCC_APT_BOOLEAN:
+            if(opt.output_ptr != NULL)
+                break;
+            *(bool*)opt.output_ptr = *(bool*)opt.default_;
+            break;
+
+        case NOCC_APT_STRING:
+        case NOCC_APT_SWITCH:
+            if(*(char**)opt.output_ptr != NULL)
+                break;
+            *(char**)opt.output_ptr = (char*)opt.default_;
+            break;
+        
+        case NOCC_APT_FLOAT:
+        case NOCC_APT_NUMBER:
+        case NOCC_APT_UNKNOWN:
+        case NOCC_APT_ARRAY:
+        default:
+            nocc_assert(false, "Unknown type");
+            break;
+        }
+    }
+
+}
+
+void _nocc_ap_set_default_argument(nocc_argparse_opt* command) {
+    if(command->arguments == NULL) return;
+
+    for(size_t i = 0; i < command->arguments_size; i++) {
+        nocc_argparse_opt arg = command->arguments[i];
+        if(*(char**)arg.output_ptr == NULL && arg.default_) {
+            *(char**)(arg.output_ptr) = arg.default_;
+        }
+    }
+}
+
+void _nocc_ap_set_default(nocc_argparse_opt* command) {
+    _nocc_ap_set_default_option(command);
+    _nocc_ap_set_default_argument(command);
+}
+
+// END ARGPARSE IMPLEMENTATION BEGIN
 
 // FILE IMPLEMENTATION 
 
