@@ -9,7 +9,7 @@
             "type": "lldb",
             "request": "launch",
             "program": "${workspaceFolder}/examples/nocc.exe",
-            "args": ["build", "all", "--debug"],
+            "args": ["--version"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
             "environment": [],
