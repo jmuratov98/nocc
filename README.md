@@ -19,7 +19,7 @@ The code is poorly written. It took me two days to write the script. There some 
 * [x] Add an actual CLI parser.
     * [x] There is a CLI parser and it does work.
     * [ ] Be able to parse arguments for options. For example, --cheese=mozzerella or --age 24; both should be valid. (Don't really need this for this project)
-    * [x] Change it from being a heap based CLI parser to a stack based CLI parser. (Both now work!)
+    * [x] Change it from being a heap based CLI parser to a stack based CLI parser. (Removed the heap allocated CLI parser!)
 * [ ] Add the ability for nocc to only compile certain files, and not the entire project over again
     * [ ] To do this the easiest (and the only way I know how to) is to differentiate the time from the source and executable. That's how make works, I think.
 * [ ] Add the ability to build itself. Rather than recompiling the file (I know its possible, but I have to my research on it).
