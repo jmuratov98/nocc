@@ -111,16 +111,19 @@ bool build_helloworlds(nocc_ap_parse_result* result) {
 
     nocc_darray(const char*) cmd = nocc_da_create(const char*);
 
-    printf("Building helloworld.c\n");
-    nocc_cmd_add(cmd, "clang");
-    if(strcmp(result->config, "debug") == 0) {
-        nocc_cmd_add(cmd, "-g", "-O0");
-    } else if(strcmp(result->config, "release") == 0){ 
-        nocc_cmd_add(cmd, "-O2");
-    }
-    nocc_cmd_add(cmd, hellworld_c, "-o", TARGET_DIR);
+    // TODO: The nocc_should_recompile function should not be exposed to the user.
+    if(nocc_should_recompile(&hellworld_c, 1, TARGET_DIR)) {
+        printf("Building helloworld.c\n");
+        nocc_cmd_add(cmd, "clang");
+        if(strcmp(result->config, "debug") == 0) {
+            nocc_cmd_add(cmd, "-g", "-O0");
+        } else if(strcmp(result->config, "release") == 0){ 
+            nocc_cmd_add(cmd, "-O2");
+        }
+        nocc_cmd_add(cmd, hellworld_c, "-o", TARGET_DIR);
 
-    nocc_cmd_execute(cmd);
+        nocc_cmd_execute(cmd);
+    }
 
     nocc_da_free(cmd);
 

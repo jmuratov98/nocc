@@ -15,6 +15,7 @@
     #include <Windows.h>
     #include <direct.h>
 #else
+    #include <unistd.h>
     #include <sys/stat.h>
     #include <sys/types.h>
     #include <dirent.h>
@@ -646,11 +647,62 @@ bool nocc_generate_object_files(const char** array_of_source_files, const char* 
 }
 
 // Command Begin
-// #define nocc_cmd_add(cmd, ...)          nocc_da_push_many(cmd, ##__VA_ARGS__)
 #define nocc_cmd_add(cmd, ...)          nocc_da_pushn(cmd, sizeof((const char*[]){__VA_ARGS__}) / sizeof(const char*), ((const char*[]){__VA_ARGS__}))
 #define nocc_cmd_addn(cmd, n, a)        nocc_da_pushn(cmd, n, a)
 
-bool nocc_cmd_execute(nocc_darray(const char*) cmd) {
+#ifdef _WIN32
+    typedef HANDLE pid;
+#else // _WIN32
+    typedef pid_t pid;
+#endif // _WIN32
+
+void _nocc_cmd_pid_wait(pid pid) {
+#ifdef _WIN32
+    DWORD result = WaitForSingleObject(pid, INFINITE);
+
+    if(result == WAIT_FAILED) {
+        nocc_assert(false, "Could not wait for child process %s", GetLastError());
+        return;
+    }
+
+    DWORD exit_code;
+    if(GetExitCodeProcess(pid, &exit_code) == 0) {
+        nocc_assert(false, "Could not get the exit code %lu", GetLastError());
+        return;
+    }
+
+    if(exit_code != 0) {
+        nocc_assert(false, "Exit code recieved %d", exit_code);
+        return;
+    }
+
+    CloseHandle(pid);
+#else
+    for(;;) {
+        int wstatus = 0;
+        if(waitpid(pid, &wstatus, 0) < 0) {
+            nocc_assert(false, "Could not wait for child process %s", strerror(errno));
+            return;
+        }
+
+        if(WIFEXITED(wstatus)) {
+            int exit_code = WEXITSTATUS(wstatus);
+            if (exit_status != 0) {
+                nocc_assert(false, "Exited with exit code %d", exit_status);
+            }
+
+            break;
+        }
+    }
+
+    if (WIFSIGNALED(wstatus)) {
+        nocc_assert(false, "command process was terminated by %s", strsignal(WTERMSIG(wstatus)));
+    }
+#endif // _WIN32
+}
+
+pid _nocc_cmd_run_command_async(nocc_darray(const char*) cmd) {
+#ifdef _WIN32
     nocc_string built_command = nocc_str_create();
     for(size_t i = 0; i < nocc_da_size(cmd); i++) {
         nocc_str_push_cstr(built_command, cmd[i]);
@@ -658,16 +710,156 @@ bool nocc_cmd_execute(nocc_darray(const char*) cmd) {
     }
     nocc_str_push_null(built_command);
 
-    int status = system(built_command);
-    if(status == -1) {
-        nocc_str_free(built_command);
-        return false;
+    STARTUPINFO siStartInfo;
+    ZeroMemory(&siStartInfo, sizeof(siStartInfo));
+    siStartInfo.cb = sizeof(STARTUPINFO);
+    // NOTE: theoretically setting NULL to std handles should not be a problem
+    // https://docs.microsoft.com/en-us/windows/console/getstdhandle?redirectedfrom=MSDN#attachdetach-behavior
+    siStartInfo.hStdError = GetStdHandle(STD_ERROR_HANDLE);
+    // TODO: check for errors in GetStdHandle
+    siStartInfo.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
+    siStartInfo.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+    siStartInfo.dwFlags |= STARTF_USESTDHANDLES;
+
+    PROCESS_INFORMATION piProcInfo;
+    ZeroMemory(&piProcInfo, sizeof(PROCESS_INFORMATION));
+
+    BOOL bSuccess =
+        CreateProcess(
+            NULL,
+            built_command,
+            NULL,
+            NULL,
+            TRUE,
+            0,
+            NULL,
+            NULL,
+            &siStartInfo,
+            &piProcInfo
+        );
+
+    if (!bSuccess) {
+        // TODO: Improve error handling
+        nocc_assert(false, "Failed to fork child process", );
+        return NULL;
     }
 
+    CloseHandle(piProcInfo.hThread);
+
     nocc_str_free(built_command);
+    return piProcInfo.hProcess;
+#else // ifndef _WIN32
+    pid_t cpid = fork();
+    if(cpid == -1) {
+        nocc_assert(false, "Failed to fork child process %s", strerror(errno));
+        return -1;
+    }
+
+    if(cpid == 0) {
+        if(execvp(cmd[i], cmd + 1) == -1) {
+            nocc_assert(false, "Failed to execute cmd %s", strerror(errno));
+            return -1;
+        }
+    }
+
+    return cpid;
+
+#endif // _WIN32
+
+    // int status = system(built_command);
+    // if(status == -1) {
+    //     nocc_str_free(built_command);
+    //     return false;
+    // }
+
+}
+
+bool nocc_cmd_execute(nocc_darray(const char*) cmd) {
+    _nocc_cmd_pid_wait(_nocc_cmd_run_command_async(cmd));
     return true;
 }
 
+/**
+ * @brief determines whether the file should be recompiled or not.
+ * 
+ * @param {const char**} inputfiles -- an array (or pointer to) a filename
+ * @param {size_t} input_files_size -- the length of the input files array (or 1) if it is a pointer.
+ * @param {const char*} outputfile  -- the name of the target file 
+ * 
+ * @return {bool} return's true, if needs to rebuild 
+*/
+bool nocc_should_recompile(const char** inputfiles, size_t input_files_size, const char* outputfile) {
+#ifdef _WIN32
+    BOOL status;
+    
+    HANDLE output_file_fd = CreateFile(outputfile, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_READONLY, NULL);
+    if(output_file_fd == INVALID_HANDLE_VALUE) {
+        if(GetLastError() == ERROR_FILE_NOT_FOUND) return true;
+        nocc_error("File not found (%s)", outputfile);
+        return true;
+    }
+
+    FILETIME output_file_time;
+    status = GetFileTime(output_file_fd, NULL, NULL, &output_file_time);
+    CloseHandle(output_file_fd);
+    if(!status) { 
+        nocc_error("Could not obtain file time: %s (%s)", GetLastError(), outputfile);
+        return true;
+    }
+
+    for(size_t i = 0; i < input_files_size; i++) {
+        const char* inputfile = inputfiles[i];
+
+        HANDLE input_file_fd = CreateFile(inputfile, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_READONLY, NULL);
+        if(input_file_fd == INVALID_HANDLE_VALUE) {
+            if(GetLastError() == ERROR_FILE_NOT_FOUND) return true;
+            nocc_error("File not found (%s)", inputfile);
+            return true;
+        }
+
+        FILETIME input_file_time;
+        status = GetFileTime(input_file_fd, NULL, NULL, &input_file_time);
+        CloseHandle(input_file_fd);
+        if(!status) { 
+            nocc_error("Could not obtain file time: %s (%s)", GetLastError(), inputfile);
+            return true;
+        }
+
+        if(CompareFileTime(&input_file_time, &output_file_time) == 1) return true;
+    }
+
+    return false;
+#else
+    // of course everything is easier on linux.
+    struct stat statbuf = {0};
+
+    if (stat(outputfile, &statbuf) < 0) {
+        // NOTE: if output does not exist it 100% must be rebuilt
+        if (errno == ENOENT) return true;
+        nocc_error("could not stat %s: %s", outputfile, strerror(errno));
+        return true;
+    }
+    int output_file_time = statbuf.st_mtime;
+
+    for (size_t i = 0; i < input_files_size; ++i) {
+        const char *inputfile = inputfiles[i];
+        if (stat(inputfile, &statbuf) < 0) {
+            // NOTE: non-existing input is an error cause it is needed for building in the first place
+            nocc_error("could not stat %s: %s", inputfile, strerror(errno));
+            return true;
+        }
+        int input_file_time = statbuf.st_mtime;
+        // NOTE: if even a single inputfile is fresher than outputfile that's 100% rebuild
+        if (input_file_time > output_file_time) return 1;
+    }
+
+    return 0;
+#endif // _WIN32
+}
+
+bool nocc_should_recompile1(const char* inputfile, const char* outputfile) {
+    return nocc_should_recompile(&inputfile, 1, outputfile);
+}
 
 // Command Ends
 
