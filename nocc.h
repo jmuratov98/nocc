@@ -142,7 +142,7 @@ size_t _nocc_da_stride(void* array);
  * @return {void}
  * 
 */
-#define nocc_da_free(a)                         _nocc_da_free(a);
+#define nocc_da_free(a)                         _nocc_da_free(a)
 
 /**
  * @brief Pushs the value to the end of the array. Think std::vector::push_back
@@ -285,7 +285,7 @@ size_t _nocc_da_stride(void* array);
  * 
  * @return {void}
 */
-#define nocc_str_push_cstr(str, s)          nocc_da_pushn(str, strlen(s), s);
+#define nocc_str_push_cstr(str, s)          nocc_da_pushn(str, strlen(s), s)
 
 /**
  * @brief Gets the size of the string. This is just a wrapper of the array class from above
@@ -740,7 +740,7 @@ pid _nocc_cmd_run_command_async(nocc_darray(const char*) cmd) {
 
     if (!bSuccess) {
         // TODO: Improve error handling
-        nocc_assert(false, "Failed to fork child process", );
+        nocc_assert(false, "Failed to fork child process");
         return NULL;
     }
 
@@ -765,13 +765,6 @@ pid _nocc_cmd_run_command_async(nocc_darray(const char*) cmd) {
     return cpid;
 
 #endif // _WIN32
-
-    // int status = system(built_command);
-    // if(status == -1) {
-    //     nocc_str_free(built_command);
-    //     return false;
-    // }
-
 }
 
 bool nocc_cmd_execute(nocc_darray(const char*) cmd) {
