@@ -585,12 +585,12 @@ bool nocc_mkdir_if_not_exists(const char* dirname) {
  * Recursively obtain all source files
  * 
  * @param {const char*} src_dir -- the directory to obtain all source files from
- * @param {const char**} files -- the files in the directory
- * 
+ * @param {const char*} file_extension -- the file extension to keep
+ * @param {const char**} files  -- the files in the directory
+ *  
  * @return {boolean}
- * 
  */
-bool nocc_read_dir(const char* src_dir, const char*** array_of_files_out) {
+bool nocc_read_dir(const char* src_dir, const char* file_extension, const char*** array_of_files_out) {
     nocc_darray(const char*) array_of_files_in_cwd = nocc_da_create(const char*);
     _nocc_read_dir_single_dir(src_dir, &array_of_files_in_cwd);
     for(size_t i = 0; i < nocc_da_size(array_of_files_in_cwd); i++) {
@@ -607,11 +607,23 @@ bool nocc_read_dir(const char* src_dir, const char*** array_of_files_out) {
         switch (type)
         {
         case NOCC_FT_FILE:
-            nocc_da_push(*array_of_files_out, dir);
+            // Step 1 get the file extension
+            // TODO: Refactor this code out of the funciton
+            char* it = dir + 1;
+            for(; it != '\0'; it++) {
+                if(*it == '.') {
+                    it++;
+                    break;
+                }
+            }
+
+            if(strcmp(it, file_extension) == 0) {
+                nocc_da_push(*array_of_files_out, dir);
+            }
             break;
 
         case NOCC_FT_DIRECTORY:
-            nocc_read_dir(dir, array_of_files_out);
+            nocc_read_dir(dir, file_extension, array_of_files_out);
             break;
 
         case NOCC_FT_UNKNOWN:
