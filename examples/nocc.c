@@ -104,25 +104,43 @@ failure:
     return 0;
 }
 
+#define _NOCC_USE_NEW_GEN_FUNCTION_
+
 bool build_helloworlds(nocc_ap_parse_result* result) {
     static const char* TARGET_DIR = "./helloworld.exe";
     
-    const char* hellworld_c = "./helloworld.c";
+    const char* helloworld_c = "./helloworld.c";
+    const char* helloworld_o = "./helloworld.o";
 
-    nocc_darray(const char*) cmd = nocc_da_create(const char*);
+    // TODO: The nocc_should_recompile function should not be exposed to the user.
+    if(nocc_should_recompile(&helloworld_c, 1, helloworld_o)) {
+        printf("Compiling ./helloworld.c");
 
-    printf("Building helloworld.c\n");
-    nocc_cmd_add(cmd, "clang");
-    if(strcmp(result->config, "debug") == 0) {
-        nocc_cmd_add(cmd, "-g", "-O0");
-    } else if(strcmp(result->config, "release") == 0){ 
-        nocc_cmd_add(cmd, "-O2");
+        // Compiling the file
+        nocc_darray(const char*) cmd = nocc_da_create(const char*);
+        nocc_cmd_add(cmd, "clang");
+        if(strcmp(result->config, "debug") == 0) {
+            nocc_cmd_add(cmd, "-g", "-O0");
+        } else if(strcmp(result->config, "release") == 0){ 
+            nocc_cmd_add(cmd, "-O2");
+        }
+        
+        nocc_cmd_add(cmd, "-c", helloworld_c, "-o", helloworld_o);
+        nocc_cmd_execute(cmd);
+        
+        nocc_da_free(cmd);
     }
-    nocc_cmd_add(cmd, hellworld_c, "-o", TARGET_DIR);
 
-    nocc_cmd_execute(cmd);
+    if(nocc_should_recompile(&helloworld_o, 1, TARGET_DIR)) {
+        // Linking the file
+        nocc_darray(const char*) cmd = nocc_da_create(const char*);
+        nocc_cmd_add(cmd, "clang", "-o", TARGET_DIR, helloworld_o);
+                
+        nocc_cmd_execute(cmd);
+            
+        nocc_da_free(cmd);
+    }
 
-    nocc_da_free(cmd);
 
     return true;
 }
