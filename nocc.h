@@ -637,25 +637,64 @@ bool nocc_read_dir(const char* src_dir, const char* file_extension, const char**
     return true;
 }
 
-/**
- * 
- * 
- * TODO: Change this function signature to make it more modifiable ...
-*/
-bool nocc_generate_object_files(const char** array_of_source_files, const char* obj_dir, char*** array_of_obj_files) {
-    *array_of_obj_files = nocc_da_reserve(*array_of_obj_files, nocc_da_size(array_of_source_files));
-    for(size_t i = 0; i < nocc_da_size(array_of_source_files); i++) {
-        char base_name[1024] = "";
-        _nocc_get_basename(array_of_source_files[i], base_name);
+nocc_string _nocc_generate_object_file(const char* filename, const char* fmt, ...) {
+    nocc_string obj_file = nocc_str_create();
+    va_list args;
+    va_start(args, fmt);
 
-        nocc_string string = nocc_str_create();
-        nocc_str_push_cstr(string, obj_dir);
-        nocc_str_push_char(string, '/');
-        nocc_str_push_cstr(string, base_name);
-        nocc_str_push_cstr(string, ".o");
+    for(const char* it = fmt; *it != '\0'; it++) {
+        if(*it != '%') {
+            nocc_str_push_char(obj_file, *it);
+            continue;
+        }
+    
+        it++;
 
-        nocc_da_push(*array_of_obj_files, string);
+        switch(*it) {
+        case 'n':
+            char base_name[1024] = "";
+            _nocc_get_basename(filename, base_name);
+            nocc_str_push_cstr(obj_file, base_name);
+            break;
+
+        case 's':
+            const char* string = va_arg(args, const char*);
+            nocc_str_push_cstr(obj_file, string);
+            break;
+        case '%':
+            nocc_str_push_char(obj_file, *it);
+            break;
+        default:
+            break;
+        }
     }
+    nocc_str_push_null(obj_file);
+
+    va_end(args);
+    return obj_file;
+}
+
+/**
+ * If you used Makefile then it's the patsubst function
+ * 
+ * fmt:
+ *  %n -- The name of the file. The name is automatically deduced from the array of files.
+ * 
+ * @brief generates the object files based on format specified.
+ * 
+ * @param {nocc_darray(nocc_string)} array_of_object_files
+ * @param {nocc_darray(const char*)} array_of_source_files
+ * @param {const char*} fmt -- the filepathname
+ * 
+ * @return {bool} true if successfully generated the object file names
+ * 
+*/
+#define nocc_generate_object_files(array_of_object_files, array_of_source_files, fmt, ...) {                                    \
+    array_of_object_files = nocc_da_reserve(nocc_string, nocc_da_size(array_of_source_files));                                  \
+    for(size_t i = 0; i < nocc_da_size(array_of_source_files); i++) {                                                           \
+        nocc_string obj_file = _nocc_generate_object_file(array_of_source_files[i], fmt, ##__VA_ARGS__);                        \
+        nocc_da_push(array_of_object_files, obj_file);                                                                          \
+    }                                                                                                                           \
 }
 
 // Command Begin
@@ -1286,9 +1325,9 @@ char *basename(const char* path, char* basename_out) {
     if(path == NULL) return NULL;
 
     size_t size = strlen(path);
-    size_t index_of_last_slash = 0;
     size_t index_of_first_dot = size;
     size_t i = (path[0] == '.' && path[1] == '/') ? 2 : 0;
+    size_t index_of_last_slash = i;
     
     for(; i < size; i++) {
         char c = path[i];
@@ -1298,9 +1337,9 @@ char *basename(const char* path, char* basename_out) {
             index_of_first_dot = i;
     }
 
-    memcpy(basename_out, path + index_of_last_slash + 1, index_of_first_dot - index_of_last_slash - 1);
+    memcpy(basename_out, path + index_of_last_slash, index_of_first_dot - index_of_last_slash);
 
-    basename_out[index_of_first_dot - index_of_last_slash - 1] = '\0';
+    basename_out[index_of_first_dot - index_of_last_slash] = '\0';
 
     return basename_out;
 }

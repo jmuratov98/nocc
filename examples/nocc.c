@@ -104,6 +104,8 @@ failure:
     return 0;
 }
 
+#define _NOCC_USE_NEW_GEN_FUNCTION_
+
 bool build_helloworlds(nocc_ap_parse_result* result) {
     static const char* TARGET_DIR = "./helloworld.exe";
     
@@ -112,6 +114,8 @@ bool build_helloworlds(nocc_ap_parse_result* result) {
 
     // TODO: The nocc_should_recompile function should not be exposed to the user.
     if(nocc_should_recompile(&helloworld_c, 1, helloworld_o)) {
+        printf("Compiling ./helloworld.c");
+
         // Compiling the file
         nocc_darray(const char*) cmd = nocc_da_create(const char*);
         nocc_cmd_add(cmd, "clang");
