@@ -597,6 +597,7 @@ bool nocc_read_dir(const char* src_dir, const char* file_extension, const char**
         if(strcmp(array_of_files_in_cwd[i], ".") == 0)  continue;
         if(strcmp(array_of_files_in_cwd[i], "..") == 0) continue;
 
+        // TODO: Need a better way of dealing with this.
         nocc_string dir = nocc_str_create();
         nocc_str_push_cstr(dir, src_dir);
         nocc_str_push_char(dir, '/');
@@ -618,7 +619,7 @@ bool nocc_read_dir(const char* src_dir, const char* file_extension, const char**
             }
 
             if(strcmp(it, file_extension) == 0) {
-                nocc_da_push(*array_of_files_out, dir);
+                nocc_da_push(*array_of_files_out, strdup(dir));
             }
             break;
 
@@ -632,6 +633,7 @@ bool nocc_read_dir(const char* src_dir, const char* file_extension, const char**
         }
 
         nocc_str_free(dir);
+
     }
     nocc_da_free(array_of_files_in_cwd);
     return true;

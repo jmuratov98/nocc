@@ -14,7 +14,7 @@ To get started create a `nocc.c` (can be named anything) file and include `nocc.
 The code is poorly written. It took me two days to write the script. There some bugs with the code, for instance when I run nocc.exe the file will add or remove certain bytes for some reason. I have no idea. So if you do happen to run the code and it doesn't compile a file then try running it again. (Cause if it doesn't work the first time use a hammer and jam until it works)
 
 ## TODO ##
-* [ ] Fix the anoying bugs. For which I don't understand what's happening.
+* [x] Fix the anoying bugs. For which I don't understand what's happening.
 * [ ] Add filters because if you build your project and compile it into the same folder, there are going to be compilation issues. Because, i'm just getting everything from the source folder and not filtering it for certain files.
 * [x] Add an actual CLI parser.
     * [x] There is a CLI parser and it does work.
