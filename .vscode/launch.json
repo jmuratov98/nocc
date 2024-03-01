@@ -5,17 +5,12 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "(gdb) Launch",
-            "type": "lldb",
-            "request": "launch",
-            "program": "${workspaceFolder}/examples/nocc.exe",
-            "args": ["build", "all", "--debug"],
-            "stopAtEntry": false,
-            "cwd": "${workspaceFolder}",
-            "environment": [],
-            "externalConsole": true,
+            "name": "(gdb) Attach",
+            "type": "cppdbg",
+            "request": "attach",
+            "program": "${workspaceRoot}/examples/nocc.exe",
             "MIMode": "gdb",
-            "miDebuggerPath": "C:\\Program Files\\LLVM\\bin\\lldb-vscode.exe",
+            "miDebuggerPath": "C:\\msys64\\ucrt64\\bin\\gdb.exe",
             "setupCommands": [
                 {
                     "description": "Enable pretty-printing for gdb",
@@ -28,7 +23,7 @@
                     "ignoreFailures": true
                 }
             ]
-        },
+        }
 
     ]
 }

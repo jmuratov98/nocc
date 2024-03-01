@@ -1,12 +1,12 @@
-#ifndef _NO_C_COMPILER_H_
-#define _NO_C_COMPILER_H_
+#ifndef _NOCC_H_
+#define _NOCC_H_
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdarg.h>
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include <stdarg.h>
 #include <stddef.h>
 #include <errno.h>
 
@@ -14,99 +14,74 @@
     #define WIN32_LEAN_AND_MEAN 
     #include <Windows.h>
     #include <direct.h>
+    #include <shlwapi.h>
 #else
     #include <unistd.h>
     #include <sys/stat.h>
     #include <sys/types.h>
     #include <dirent.h>
     #include <libgen.h>
+    #include <fnmatch.h>
 #endif
 
-// DEFS
-#define NOCC_VERSION_MAJOR      0
-#define NOCC_VERSION_MINOR      2
-#define NOCC_VERSION_PATCH      "0-a.0"
-#define NOCC_VERSION            "0.2.0-a.0"
+// cstd extensions end
+// Note: While this is defined in stdio.h, it's only available for GNU and BSD environments. To make
+// nocc more platform-agnostic, I have decided to implement these functions. The following code
+// is obtained from https://rextester.com/HUNM43537
+#ifndef _vscprintf
+int _vscprintf_so(const char* format, va_list pargs);
+#endif // _vscprintf
+
+#ifndef vasprintf
+int vasprintf(char **strp, const char *fmt, va_list ap);
+#endif // vasprintf
+
+#ifndef asprintf
+int asprintf(char *strp[], const char *fmt, ...);
+#endif // asprintf
+// cstd extensions end
+
+// Defines Begin
+#define NOCC_VERSION_MAJOR      "0"
+#define NOCC_VERSION_MINOR      "3"
+#define NOCC_VERSION_PATCH      "0"
+#define NOCC_VERSION_PRERC      "alpha"
+#define NOCC_VERSION_CORE       NOCC_VERSION_MAJOR "." NOCC_VERSION_MINOR "." NOCC_VERSION_PATCH
+#ifdef NOCC_VERSION_PRERC
+    #define NOCC_VERSION        NOCC_VERSION_CORE "-" NOCC_VERSION_PRERC
+#else
+    #define NOCC_VERSION        NOCC_VERSION_CORE
+#endif
 
 #define NOCC_INIT_CAP           10
 
-#ifdef _MSVC_LANG
-    #define nocc_debugbreak     __debugbreak
-#else
-    #define nocc_debugbreak     __builtin_trap
-#endif
+// Defines End
 
-// Logging Begin ==========================================================
+// Logging Begin
 typedef enum {
-    NOCC_LOG_LEVEL_TRACE, NOCC_LOG_LEVEL_DEBUG, NOCC_LOG_LEVEL_INFO, NOCC_LOG_LEVEL_WARN, NOCC_LOG_LEVEL_ERROR, 
+    NOCC_LOG_LEVEL_TRACE, NOCC_LOG_LEVEL_DEBUG, NOCC_LOG_LEVEL_INFO, NOCC_LOG_LEVEL_WARN, NOCC_LOG_LEVEL_ERROR, NOCC_LOG_LEVEL_CRITICAL,
     NOCC_LOG_LEVEL_OFF
 } nocc_log_level;
 
-#define buffer_size  1024
-int _nocc_log_output(nocc_log_level level, const char* fmt, ...) {
-    static const char* levels[NOCC_LOG_LEVEL_OFF] = { "trace", "debug", "info", "warn", "error" };
-    char buffer[buffer_size] = {0};
+int32_t _nocc_log_output(nocc_log_level, const char *const, ...);
 
-    va_list args;
-    va_start(args, fmt);
-    vsprintf_s(buffer, buffer_size, fmt, args);
-    va_end(args);
+#define nocc_trace(msg, ...)    _nocc_log_output(NOCC_LOG_LEVEL_TRACE, msg, ##__VA_ARGS__)
+#define nocc_debug(msg, ...)    _nocc_log_output(NOCC_LOG_LEVEL_DEBUG, msg, ##__VA_ARGS__)
+#define nocc_info(msg, ...)     _nocc_log_output(NOCC_LOG_LEVEL_INFO, msg, ##__VA_ARGS__) 
+#define nocc_warn(msg, ...)     _nocc_log_output(NOCC_LOG_LEVEL_WARN, msg, ##__VA_ARGS__)
+#define nocc_error(msg, ...)    _nocc_log_output(NOCC_LOG_LEVEL_ERROR, msg, ##__VA_ARGS__) 
+#define nocc_critical(msg, ...) _nocc_log_output(NOCC_LOG_LEVEL_CRITICAL, msg, ##__VA_ARGS__)
+// Logging End
 
-    int status = printf("[%s]: %s\n", levels[level], buffer);
-    return status;
-}
-
-/**
- * @brief Logs a formatted output to the console. Either as a 'trace', 'debug', 'info', 'warn', or 'error'.
- * 
- * @param {const char*} fmt -- the formatted output
- * @param {...} ... -- the arguments which get formatted.
- * 
- * @return {int} returns the amount of bytes printed to the console.
- * 
-*/
-#define nocc_trace(fmt, ...)    _nocc_log_output(NOCC_LOG_LEVEL_TRACE, fmt, ##__VA_ARGS__)
-#define nocc_debug(fmt, ...)    _nocc_log_output(NOCC_LOG_LEVEL_DEBUG, fmt, ##__VA_ARGS__)
-#define nocc_info(fmt, ...)     _nocc_log_output(NOCC_LOG_LEVEL_INFO, fmt, ##__VA_ARGS__)
-#define nocc_warn(fmt, ...)     _nocc_log_output(NOCC_LOG_LEVEL_WARN, fmt, ##__VA_ARGS__)
-#define nocc_error(fmt, ...)    _nocc_log_output(NOCC_LOG_LEVEL_ERROR, fmt, ##__VA_ARGS__)
-
-#ifdef NOCC_DEBUG
-    #define NOCC_ENABLE_ASSERTS
-#endif
-
-#ifdef NOCC_ENABLE_ASSERTS
-    #define nocc_assert(x, ...) {               \
-        if((x)) {                               \
-        } else {                                \
-            nocc_error("ASSERTION FAILED %s: (%s %zu): %s", #x, __FILE__, __LINE__, ##__VA_ARGS__);\
-            nocc_debugbreak();               \
-        }                                       \
-    }
-#else
-    #define nocc_assert(x, ...)
-#endif // NOCC_ENABLE_ASSERTS
-// Logging End ============================================================
-
-// Array Begin ==========================================================
-// This is private and should not be unitilized
-typedef struct {
-    size_t capacity, size, stride;
-} _nocc_da_header;
-
-// A helper function to calculate the head of the pointer. This is private and should not be utilized
-#define _nocc_da_calc_header(a) (_nocc_da_header*)((uint8_t*)(a) - sizeof(_nocc_da_header));
-
-// Since these function 
-void* _nocc_da_reserve(size_t stride, size_t cap);
-void  _nocc_da_free(void* array);
-void* _nocc_da_push(void* array, void* value);
-void* _nocc_da_pushn(void* array, size_t n, void* value);
-void* _nocc_da_grow(void* array, size_t new_capacity);
-void* _nocc_da_remove(void* array, size_t index, void* ouput_ptr);
-size_t _nocc_da_size(void* array);
-size_t _nocc_da_capacity(void* array);
-size_t _nocc_da_stride(void* array);
+// Dynamic Array Begin
+void* _nocc_darray_reserve(size_t stride, size_t cap);
+void  _nocc_darray_free(void* array);
+void* _nocc_darray_push(void* array, void* value);
+void* _nocc_darray_pushn(void* array, size_t n, void* value);
+void* _nocc_darray_remove(void* array, size_t index, void* ouput_ptr);
+size_t _nocc_darray_size(void* array);
+size_t _nocc_darray_capacity(void* array);
+size_t _nocc_darray_stride(void* array);
 
 /**
  * @brief a wrapper. To use this as the type. Think of std::vector<T> in C++
@@ -122,7 +97,7 @@ size_t _nocc_da_stride(void* array);
  * @return {void*} returns the newly constructed array or NULL if the creation failed.
  * 
 */
-#define nocc_da_reserve(T, cap)                 _nocc_da_reserve(sizeof(T), cap)
+#define nocc_darray_reserve(T, cap)                 _nocc_darray_reserve(sizeof(T), cap)
 
 /**
  * @brief Creates an array with a capacity of 10.
@@ -132,7 +107,7 @@ size_t _nocc_da_stride(void* array);
  * @return {void*} returns the newly constructed array or NULL if the creation failed.
  * 
 */
-#define nocc_da_create(T)                       nocc_da_reserve(T, NOCC_INIT_CAP)
+#define nocc_darray_create(T)                       nocc_darray_reserve(T, NOCC_INIT_CAP)
 
 /**
  * @brief Frees the array. If the elements were allocated on the heap. The user must free them.
@@ -142,7 +117,7 @@ size_t _nocc_da_stride(void* array);
  * @return {void}
  * 
 */
-#define nocc_da_free(a)                         _nocc_da_free(a)
+#define nocc_darray_free(a)                         _nocc_darray_free(a)
 
 /**
  * @brief Pushs the value to the end of the array. Think std::vector::push_back
@@ -152,9 +127,9 @@ size_t _nocc_da_stride(void* array);
  * 
  * @return {void}
 */
-#define nocc_da_push(a, v) {                    \
+#define nocc_darray_push(a, v) {                \
     typeof((v)) temp = (v);                     \
-    a = _nocc_da_push(a, &temp);                \
+    a = _nocc_darray_push(a, &temp);            \
 }
 
 /**
@@ -166,7 +141,7 @@ size_t _nocc_da_stride(void* array);
  * 
  * @return {void}
 */
-#define nocc_da_pushn(a, n, v)                  { a = _nocc_da_pushn(a, n, v); }
+#define nocc_darray_pushn(a, n, v)                  { a = _nocc_darray_pushn(a, n, v); }
 
 /**
  * @brief Pushs the value to the end of the array. Think std::vector::push_back
@@ -176,7 +151,7 @@ size_t _nocc_da_stride(void* array);
  * 
  * @return {void}
 */
-#define nocc_da_push_many(a, ...)               { a = _nocc_da_pushn(a, sizeof((typeof(__VA_ARGS__)[]){__VA_ARGS__}) / nocc_da_stride(a), (typeof(__VA_ARGS__)[]){__VA_ARGS__}); }
+#define nocc_darray_push_many(a, ...)               _nocc_darray_pushn(a, sizeof((typeof(__VA_ARGS__)[]){__VA_ARGS__}) / nocc_da_stride(a), (typeof(__VA_ARGS__)[]){__VA_ARGS__})
 
 /**
  * @brief Removes the element from the array
@@ -187,7 +162,7 @@ size_t _nocc_da_stride(void* array);
  * 
  * @return {void}
 */
-#define nocc_da_remove(a, i, op)               { a = _nocc_da_remove((a), (i), (op)); }
+#define nocc_darray_remove(a, i, op)               { a = _nocc_darray_remove((a), (i), (op)); }
 
 /**
  * @brief returns the size of the array
@@ -197,7 +172,7 @@ size_t _nocc_da_stride(void* array);
  * @return {size_t} The size of the array
  * 
 */
-#define nocc_da_size(a)                 _nocc_da_size(a)
+#define nocc_darray_size(a)                 _nocc_darray_size(a)
 
 /**
  * @brief returns the capacity of the array
@@ -207,7 +182,7 @@ size_t _nocc_da_stride(void* array);
  * @return {size_t} The capacity of the array
  * 
 */
-#define nocc_da_capacity(a)             _nocc_da_capacity(a)
+#define nocc_darray_capacity(a)             _nocc_darray_capacity(a)
 
 /**
  * @brief returns the stride of the array
@@ -217,315 +192,33 @@ size_t _nocc_da_stride(void* array);
  * @return {size_t} The stride of the array
  * 
 */
-#define nocc_da_stride(a)               _nocc_da_stride(a)
-// Array End ============================================================
+#define nocc_darray_stride(a)               _nocc_darray_stride(a)
+// Dynamic Array End
 
-// String Begin ==========================================================
-/**
- * @brief the type of the string
- * 
- * TODO: what would be cool is to allow wide strings as well, such as wchar_t
-*/
-#define nocc_string char*
+// String Begin
 
-/**
- * @brief Creates a string with a capacity. This is just a wrapper of the array class from above
- * 
- * @param {size_t} cap -- The amount to reserve the array with
- * 
- * @return {void*} The newly created string
- * 
- * TODO: what would be cool is to allow wide strings as well, such as wchar_t
-*/
-#define nocc_str_reserve(cap)               nocc_da_reserve(char, cap)
+#define nocc_string                         char*
 
-/**
- * @brief Creates a string with a predefined capacity. This is just a wrapper of the array class from above
- * 
- * @return {void*} The newly created string
- * 
- * TODO: what would be cool is to allow wide strings as well, such as wchar_t
-*/
-#define nocc_str_create()                   nocc_da_reserve(char, NOCC_INIT_CAP)
+char* _nocc_string_reserve(size_t cap);
+void _nocc_string_free(char* s);
+char* _nocc_string_pushc(nocc_string str, char c);
+char* _nocc_string_push(nocc_string str, const char* cstr);
+size_t _nocc_string_size(nocc_string str);
+size_t _nocc_string_capacity(nocc_string str);
 
-/**
- * @brief Frees the string. This is just a wrapper of the array class from above
- * 
- * @param {void*} str -- The string
- * 
- * @return {void}
- * 
-*/
-#define nocc_str_free(str)                  nocc_da_free(str)
+#define nocc_string_create()                nocc_string_reserve(NOCC_INIT_CAP)
+#define nocc_string_reserve(cap)            _nocc_string_reserve(cap)
+#define nocc_string_free(s)                 _nocc_string_free(s)
 
-/**
- * @brief Pushes a character to the end of the string. This is just a wrapper of the array class from above
- * 
- * @param {void*} str -- The string
- * @param {char} c -- The character to add
- * 
- * @return {void}
-*/
-#define nocc_str_push_char(str, c)          nocc_da_push(str, c)
+#define nocc_string_pushc(s, c)             { s = _nocc_string_pushc(s, c); }
+#define nocc_string_push(s, cstr)           { s = _nocc_string_push(s, cstr); }
+#define nocc_string_push_null(s)            _nocc_string_pushc(s, '\0')
 
-/**
- * @brief Pushes a '\0' character to the end of the string. Without it, the string could not be used as a C string. This is just a wrapper of the array class from above
- * 
- * @param {void*} str -- The string
- * 
- * @return {void}
-*/
-#define nocc_str_push_null(str)             nocc_da_push(str, '\0')
+#define nocc_string_size(s)                 _nocc_string_size(s)
+#define nocc_string_capacity(s)             _nocc_string_capacity(s)
+// String End
 
-/**
- * @brief Pushes a C string to the end of the string. This is just a wrapper of the array class from above
- * 
- * @param {void*} str -- The string
- * @param {char*} s -- The string to add
- * 
- * @return {void}
-*/
-#define nocc_str_push_cstr(str, s)          nocc_da_pushn(str, strlen(s), s)
-
-/**
- * @brief Gets the size of the string. This is just a wrapper of the array class from above
- * 
- * @param {void*} str -- The string
- * 
- * @return {size_t} the size/length of the string.
-*/
-#define nocc_str_size(s)                    nocc_da_size
-
-/**
- * @brief Gets the capacity of the string. This is just a wrapper of the array class from above
- * 
- * @param {void*} str -- The string
- * 
- * @return {size_t} the capacity of the string. The total it can carry until needing to resize the string.
-*/
-#define nocc_str_capacity(s)                nocc_da_capacity
-
-/**
- * @brief Gets the stride of the string. This is just a wrapper of the array class from above
- * 
- * @param {void*} str -- The string
- * 
- * @return {size_t} the stride of each element of the string.
-*/
-
-#define nocc_str_stride(s)                  nocc_da_stride
-// String End ============================================================
-
-// Argument Parsing Begin =================================================
-
-typedef enum {
-    NOCC_APT_UNKNOWN = 0,
-
-    // BASE TYPES
-    NOCC_APT_BOOLEAN, NOCC_APT_NUMBER, NOCC_APT_FLOAT, NOCC_APT_STRING,
-    
-    // COMPLEX TYPES
-    NOCC_APT_ARRAY,     // TODO: Implement this later...
-
-    /**
-     * @brief the idea of this is allow for a flag to imply some thing else. For example, --debug flag
-     * may be interpreted as to config="debug" (depending on the pointer that is put in)
-    */
-    NOCC_APT_SWITCH,  
-} _nocc_argparse_type;
-
-#define _USE_NEW_ARGPARSE_ 
-typedef enum {
-    NOCC_APK_UNKNOWN = 0,
-    NOCC_APK_OPTION, NOCC_APK_ARGUMENT, NOCC_APK_COMMAND
-} _nocc_argparse_kind;
-
-typedef struct nocc_argparse_opt {
-    const char* name;             // long_name for your options;
-    const char* description;
-    void* output_ptr;
-
-    // internal        
-    _nocc_argparse_kind _kind;
-    void* default_;
-
-    union {
-        // Options
-        struct {
-            char short_name;
-            _nocc_argparse_type _type;
-            struct nocc_argparse_opt* _children;
-            size_t _length_children;
-        };
-
-        // Argument
-
-        // Command
-        struct {
-            nocc_darray(struct nocc_argparse_opt) arguments;
-            size_t arguments_size;
-            nocc_darray(struct nocc_argparse_opt) options;
-            size_t options_size;
-            nocc_darray(struct nocc_argparse_opt) commands;
-            size_t commands_size;
-        };
-    };
-
-} nocc_argparse_opt;
-
-#define nocc_ap_opt_boolean(sn, ln, desc, def, op) { ._kind=NOCC_APK_OPTION, ._type=NOCC_APT_BOOLEAN, .short_name=(sn), .name=(ln), .description=(desc), .default_=(def), .output_ptr=(op), ._children=NULL, ._length_children=0 }
-#define nocc_ap_opt_switch(a, def, op) { ._kind=NOCC_APK_OPTION, ._type=NOCC_APT_SWITCH, .short_name=0, .name=NULL, .description=NULL, .default_=(def), .output_ptr=(op), ._children=(a), ._length_children=(sizeof(a) / sizeof(nocc_argparse_opt)) }
-
-#define nocc_ap_arg_string(n, d, def, op) { ._kind=NOCC_APK_ARGUMENT, ._type=NOCC_APT_STRING, .name=(n), .description=(d), .default_=(def), .output_ptr=(op) }
-
-#define nocc_ap_cmd(n, d, o, a, c, op) {                                                \
-    ._kind = NOCC_APK_COMMAND,                                                          \
-    .name = (n),                                                                        \
-    .description = (d),                                                                 \
-    .options = (o), .options_size = (sizeof(o) / sizeof(nocc_argparse_opt)),            \
-    .arguments = (a), .arguments_size = (sizeof(a) / sizeof(nocc_argparse_opt)),        \
-    .commands = (c), .commands_size = (sizeof(c) / sizeof(nocc_argparse_opt)),          \
-    .default_ = NULL,                                                                   \
-    .output_ptr = (op)                                                                  \
-}
-
-bool _nocc_ap_parse_rec(nocc_argparse_opt* command, int beg, nocc_darray(char*) args);
-inline bool _nocc_ap_find_if_is_long(char c);
-bool _nocc_ap_get_option_status(nocc_argparse_opt* opt, bool is_long, char* arg);
-bool _nocc_ap_parse_option(nocc_argparse_opt* command, int beg, nocc_darray(char*) args, char* arg);
-bool _nocc_ap_parse_argument(nocc_argparse_opt* command, int beg, nocc_darray(char*) args, char* arg);
-void _nocc_ap_set_default_option(nocc_argparse_opt* command);
-void _nocc_ap_set_default_argument(nocc_argparse_opt* command);
-void _nocc_ap_set_default(nocc_argparse_opt* command);
-
-/**
- * @brief Parses the options, arguments, and subcommands. If you call this function call this function with the main command rather than a subcommand.
- * This function parses it recursively. So you have to call this function once. And it will do all the work for you.
- * 
- * @param {nocc_argparse_command*} program -- The command to parse.
- * @param {int} argc -- The arg counter passed into main, or __argc.
- * @param {char**} argv -- The variadic arguments passed into main or __argv.
- * 
- * @return {bool}
-*/
-bool nocc_ap_parse(nocc_argparse_opt* program, int argc, char** argv) {
-    nocc_darray(char*) args = nocc_da_reserve(char*, argc - 1);
-    nocc_da_pushn(args, argc - 1, argv + 1);
-
-    bool status = _nocc_ap_parse_rec(program, 0, args);
-
-    nocc_da_free(args);
-    return status;
-}
-
-/**
- * @brief Creates the usage string and prints the usage to output.
- * 
- * @param {nocc_argparse_opt*} program -- The command to usageify.
- * 
- * @return {bool}
-*/
-bool nocc_ap_usage(nocc_argparse_opt* program) {
-    if(program->_kind != NOCC_APK_COMMAND) return false;
-
-    nocc_string usage_string = nocc_str_create();
-    
-    nocc_str_push_cstr(usage_string, "Usage: ");
-    nocc_str_push_cstr(usage_string, program->name);
-    if(program->commands) {
-        nocc_str_push_char(usage_string, ' ');
-        nocc_str_push_cstr(usage_string, "<command>");
-    }
-    if(program->arguments) {
-        nocc_str_push_char(usage_string, ' ');
-        nocc_str_push_cstr(usage_string, "[<arguments>]");
-    }
-    if(program->options) {
-        nocc_str_push_char(usage_string, ' ');
-        nocc_str_push_cstr(usage_string, "[options]");
-    }
-    nocc_str_push_cstr(usage_string, "\n\n");
-
-    nocc_str_push_cstr(usage_string, program->description);
-
-    if(program->commands) {
-        nocc_str_push_cstr(usage_string, "\n\n");
-        nocc_str_push_cstr(usage_string, "Commands:\n");
-        for(size_t i = 0; i < program->commands_size; i++) {
-            nocc_str_push_char(usage_string, '\t');
-            nocc_str_push_cstr(usage_string, program->commands[i].name);
-            nocc_str_push_cstr(usage_string, "\t\t\t\t");
-            nocc_str_push_cstr(usage_string, program->commands[i].description);
-            nocc_str_push_char(usage_string, '\n');
-        }
-    }
-
-    if(program->arguments) {
-        nocc_str_push_cstr(usage_string, "\n\n");
-        nocc_str_push_cstr(usage_string, "Arguments:\n");
-        for(size_t i = 0; i < program->arguments_size; i++) {
-            nocc_str_push_char(usage_string, '\t');
-            nocc_str_push_cstr(usage_string, program->arguments[i].name);
-            nocc_str_push_cstr(usage_string, "\t\t\t");
-            nocc_str_push_cstr(usage_string, program->arguments[i].description);
-            if(program->arguments[i].default_) {
-                nocc_str_push_cstr(usage_string, " (default=");
-                nocc_str_push_cstr(usage_string, program->arguments[i].default_);
-                nocc_str_push_char(usage_string, ')');
-            }
-            nocc_str_push_char(usage_string, '\n');
-
-        }
-    }
-
-    if(program->options) {
-        nocc_str_push_cstr(usage_string, "\n\n");
-        nocc_str_push_cstr(usage_string, "Options:\n");
-        for(size_t i = 0; i < program->options_size; i++) {
-            if(program->options[i]._type == NOCC_APT_SWITCH) {
-                for(size_t j = 0; j < program->options[i]._length_children; j++) {
-                    nocc_str_push_cstr(usage_string, "\t-");
-                    nocc_str_push_char(usage_string, program->options[i]._children[j].short_name);
-                    nocc_str_push_cstr(usage_string, ", --");
-                    nocc_str_push_cstr(usage_string, program->options[i]._children[j].name);
-                    nocc_str_push_cstr(usage_string, "\t\t\t");
-                    nocc_str_push_cstr(usage_string, program->options[i]._children[j].description);
-                    nocc_str_push_char(usage_string, '\n');
-                }
-            } else {
-                    nocc_str_push_cstr(usage_string, "\t-");
-                    nocc_str_push_char(usage_string, program->options[i].short_name);
-                    nocc_str_push_cstr(usage_string, ", --");
-                    nocc_str_push_cstr(usage_string, program->options[i].name);
-                    nocc_str_push_cstr(usage_string, "\t\t\t");
-                    nocc_str_push_cstr(usage_string, program->options[i].description);
-                    nocc_str_push_char(usage_string, '\n');
-            }
-        }
-    }
-
-    nocc_str_push_null(usage_string);
-
-    printf("%s", usage_string);
-
-    nocc_str_free(usage_string);
-    return true;
-}
-
-// Argument Parsing End ===================================================
-
-// File Begins ============================================================
-
-typedef enum {
-    NOCC_FT_UNKNOWN,
-    NOCC_FT_DIRECTORY,
-    NOCC_FT_FILE
-} nocc_file_type;
-
-nocc_file_type _nocc_get_file_type(const char* filepath);
-bool _nocc_read_dir_single_dir(const char* src_dir, const char*** files);
-char* _nocc_get_basename(const char* dir, char* output);
-
+// File Functions Begin
 // dirent.h =====================================================================
 /**
  * 
@@ -548,160 +241,45 @@ int closedir(DIR* dir);
 DIR* opendir(const char* name);
 struct dirent* readdir(DIR* dir);
 
-// Technically not part of dirent.h, but i don't care.
-char *basename(const char* path, char* basename_out);
-
 #endif
 // dirent.h =====================================================================
 
-/**
- * Creates a directory if the folder does note exist
- * 
- * @param {const char*} dirname -- the directory name to create.
- * @return {bool} return's false if the directory wasn't created, however, if it exists it returns true.
- * 
- * TODO: Make this recursive... No idea how.
- */
-bool nocc_mkdir_if_not_exists(const char* dirname) {
-    int status;
 #ifdef _WIN32
-    status = _mkdir(dirname);
-#else
-    status = mkdir(dirname, 0x777);
-#endif
-    if(status == -1) {
-        if(errno == EEXIST) {
-            nocc_trace("Dir %s", dirname);
-            return true;
-        }
-        nocc_error("Failed to create dir %s: %s", dirname, strerror(errno));
-        return false;
-    }
-    return true;
+int fnmatch(const char *pattern, const char *string, int flags);
+#endif // _WIN32
 
-}
+typedef enum {
+    NOCC_FT_FILE,
+    NOCC_FT_DIRECTORY,
+    NOCC_FT_UNKNOWN
+} nocc_file_type;
 
-/**
- * Recursively obtain all source files
- * 
- * @param {const char*} src_dir -- the directory to obtain all source files from
- * @param {const char*} file_extension -- the file extension to keep
- * @param {const char**} files  -- the files in the directory
- *  
- * @return {boolean}
- */
-bool nocc_read_dir(const char* src_dir, const char* file_extension, const char*** array_of_files_out) {
-    nocc_darray(const char*) array_of_files_in_cwd = nocc_da_create(const char*);
-    _nocc_read_dir_single_dir(src_dir, &array_of_files_in_cwd);
-    for(size_t i = 0; i < nocc_da_size(array_of_files_in_cwd); i++) {
-        if(strcmp(array_of_files_in_cwd[i], ".") == 0)  continue;
-        if(strcmp(array_of_files_in_cwd[i], "..") == 0) continue;
-
-        // TODO: Need a better way of dealing with this.
-        nocc_string dir = nocc_str_create();
-        nocc_str_push_cstr(dir, src_dir);
-        nocc_str_push_char(dir, '/');
-        nocc_str_push_cstr(dir, array_of_files_in_cwd[i]);
-        nocc_str_push_null(dir);
-
-        nocc_file_type type = _nocc_get_file_type(dir);
-        switch (type)
-        {
-        case NOCC_FT_FILE:
-            // Step 1 get the file extension
-            // TODO: Refactor this code out of the funciton
-            char* it = dir + 1;
-            for(; it != '\0'; it++) {
-                if(*it == '.') {
-                    it++;
-                    break;
-                }
-            }
-
-            if(strcmp(it, file_extension) == 0) {
-                nocc_da_push(*array_of_files_out, strdup(dir));
-            }
-            break;
-
-        case NOCC_FT_DIRECTORY:
-            nocc_read_dir(dir, file_extension, array_of_files_out);
-            break;
-
-        case NOCC_FT_UNKNOWN:
-        default:
-            break;
-        }
-
-        nocc_str_free(dir);
-
-    }
-    nocc_da_free(array_of_files_in_cwd);
-    return true;
-}
-
-nocc_string _nocc_generate_object_file(const char* filename, const char* fmt, ...) {
-    nocc_string obj_file = nocc_str_create();
-    va_list args;
-    va_start(args, fmt);
-
-    for(const char* it = fmt; *it != '\0'; it++) {
-        if(*it != '%') {
-            nocc_str_push_char(obj_file, *it);
-            continue;
-        }
-    
-        it++;
-
-        switch(*it) {
-        case 'n':
-            char base_name[1024] = "";
-            _nocc_get_basename(filename, base_name);
-            nocc_str_push_cstr(obj_file, base_name);
-            break;
-
-        case 's':
-            const char* string = va_arg(args, const char*);
-            nocc_str_push_cstr(obj_file, string);
-            break;
-        case '%':
-            nocc_str_push_char(obj_file, *it);
-            break;
-        default:
-            break;
-        }
-    }
-    nocc_str_push_null(obj_file);
-
-    va_end(args);
-    return obj_file;
-}
-
-/**
- * If you used Makefile then it's the patsubst function
- * 
- * fmt:
- *  %n -- The name of the file. The name is automatically deduced from the array of files.
- * 
- * @brief generates the object files based on format specified.
- * 
- * @param {nocc_darray(nocc_string)} array_of_object_files
- * @param {nocc_darray(const char*)} array_of_source_files
- * @param {const char*} fmt -- the filepathname
- * 
- * @return {bool} true if successfully generated the object file names
- * 
-*/
-#define nocc_generate_object_files(array_of_object_files, array_of_source_files, fmt, ...) {                                    \
-    array_of_object_files = nocc_da_reserve(nocc_string, nocc_da_size(array_of_source_files));                                  \
-    for(size_t i = 0; i < nocc_da_size(array_of_source_files); i++) {                                                           \
-        nocc_string obj_file = _nocc_generate_object_file(array_of_source_files[i], fmt, ##__VA_ARGS__);                        \
-        nocc_da_push(array_of_object_files, obj_file);                                                                          \
-    }                                                                                                                           \
-}
+nocc_file_type _nocc_get_file_type(const char* filepath);
+bool nocc_mkdir_if_not_exists(const char* dirname);
+nocc_darray(const char*) nocc_read_dir(const char *const filter);
+bool nocc_read_dir_i(const char *const filter, nocc_darray(const char*)* array_outp);
+nocc_darray(const char*) nocc_generate_objects(nocc_darray(const char*) sources, const char *const fmt, ...);
+// File Functions End
 
 // Command Begin
-#define nocc_cmd_add(cmd, ...)          nocc_da_pushn(cmd, sizeof((const char*[]){__VA_ARGS__}) / sizeof(const char*), ((const char*[]){__VA_ARGS__}))
-#define nocc_cmd_addn(cmd, n, a)        nocc_da_pushn(cmd, n, a)
+
+typedef struct {
+    const char* cc;                     // compiler, for example gcc, clang, msvc, tsc
+    const char* cflags;                 // C flags
+    const char* includes;               // -I./include
+    const char* defines;                // defines: -D_DEBUG
+    const char* src_filter;             //
+    const char* inc_filter;             //
+    const char* obj_format;             //
+} nocc_compilation_options;
+
+typedef struct {
+    const char* ld;                     // linker: gcc, clang, etc.
+    const char* ldflags;                // ldflags: -lsomelib
+    const char* ldadd;                  // ldadd: -Lbin
+    nocc_darray(const char*) objs;      // 
+    const char* target;                 //
+} nocc_link_options;
 
 #ifdef _WIN32
     typedef HANDLE pid;
@@ -709,23 +287,743 @@ nocc_string _nocc_generate_object_file(const char* filename, const char* fmt, ..
     typedef pid_t pid;
 #endif // _WIN32
 
+#define nocc_command                            nocc_darray(const char*)
+#define nocc_command_create()                   nocc_darray_create(const char*)
+#define nocc_command_free(cmd)                  nocc_darray_free(cmd)
+#define nocc_command_add(cmd, ...)              nocc_darray_pushn(cmd, (sizeof((const char*[]){__VA_ARGS__})/sizeof(const char*)), ((const char*[]){__VA_ARGS__}))
+#define nocc_command_addn(cmd, n, a)            nocc_darray_pushn(cmd, n, a)
+
+bool nocc_command_execute(nocc_command cmd);
+bool nocc_should_recompile_many(nocc_darray(const char*) inputfiles, nocc_darray(const char*) headerfiles, const char* outputfile);
+bool nocc_should_recompile(const char* inputfile, nocc_darray(const char*) headerfiles, const char* outputfile);
+
+nocc_darray(const char*) nocc_compile(nocc_compilation_options opts);
+bool nocc_compile(nocc_link_options opts);
+
+// Command End
+
+// cstd extensions begin
+// Note: While this is defined in stdio.h, it's only available for GNU and BSD environments. To make
+// nocc more platform-agnostic, I have decided to implement these functions. The following code
+// is obtained from https://rextester.com/HUNM43537
+#ifndef _vscprintf
+int _vscprintf_so(const char* format, va_list pargs) {
+    int retval;
+    va_list argcopy;
+    va_copy(argcopy, pargs);
+    retval = vsnprintf(NULL, 0, format, argcopy);
+    va_end(argcopy);
+}
+#endif // _vscprintf
+
+#ifndef vasprintf
+int vasprintf(char **strp, const char *fmt, va_list ap) {
+    int len = _vscprintf_so(fmt, ap);
+    if (len == -1) return -1;
+    char *str = malloc((size_t) len + 1);
+    if (!str) return -1;
+    int r = vsnprintf(str, len + 1, fmt, ap); /* "secure" version of vsprintf */
+    if (r == -1) return free(str), -1;
+    *strp = str;
+    return r;
+}
+#endif // vasprintf
+
+#ifndef asprintf
+int asprintf(char *strp[], const char *fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    int r = vasprintf(strp, fmt, ap);
+    va_end(ap);
+    return r;
+}
+#endif // asprintf
+// cstd extensions end
+
+// Logging Implementation Start
+void _nocc_log_platform_output(nocc_log_level, const char *const);
+
+int32_t _nocc_log_output(nocc_log_level level, const char *const fmt, ...) {
+    static const char* levels[NOCC_LOG_LEVEL_OFF] = { "trace", "debug", "info", "warn", "error", "critical" };
+
+    // format the string and dynamically allocate it, rather than inputting the size.
+    char *formatted_message;
+    va_list args;
+    va_start(args, fmt);
+    int result = vasprintf(&formatted_message, fmt, args);
+    if(result == -1) {
+        printf("Failed to format the string");
+        return -1;
+    }
+    va_end(args);
+
+    char *outputted_message;
+    result = asprintf(&outputted_message, "[%s]: %s\n", levels[level], formatted_message);
+    if(result == -1) {
+        printf("Failed to format the string");
+        free(formatted_message);
+        return -1;
+    }
+
+    free(formatted_message);
+
+    _nocc_log_platform_output(level, outputted_message);
+
+    free(outputted_message);
+
+    return result;
+}
+
+void _nocc_log_platform_output(nocc_log_level level, const char *const msg) {
+#ifdef _WIN32
+    HANDLE console_handle = GetStdHandle(STD_OUTPUT_HANDLE);
+    static uint8_t levels[6] = {
+        FOREGROUND_INTENSITY,
+        FOREGROUND_BLUE,
+        FOREGROUND_GREEN,
+        FOREGROUND_RED | FOREGROUND_GREEN,
+        FOREGROUND_RED,
+        BACKGROUND_RED | BACKGROUND_GREEN | FOREGROUND_RED
+    };
+
+    HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+    
+    // Get the current console color
+    CONSOLE_SCREEN_BUFFER_INFO consoleInfo;
+    GetConsoleScreenBufferInfo(hConsole, &consoleInfo);
+    WORD originalColor = consoleInfo.wAttributes;
+
+    // Set the new console color
+    SetConsoleTextAttribute(hConsole, levels[level]);
+    
+    // Print the message
+    uint64_t length = strlen(msg);
+    DWORD number_written = 0;
+    WriteConsoleA(GetStdHandle(STD_OUTPUT_HANDLE), msg, (DWORD)length, &number_written, 0);
+
+    // Reset the console color to the original color
+    SetConsoleTextAttribute(hConsole, originalColor);
+#else 
+    const char* colour_strings[] = {"1;30", "1;34", "1;32", "1;33", "1;31", "0;41"};
+    printf("\033[%sm%s\033[0m", colour_strings[level], message);
+#endif // _WIN32
+}
+
+// Logging Implementation End
+
+// Dynamic Array Implementation Begin
+typedef struct {
+    size_t capacity, size, stride;
+} _nocc_darray_header;
+
+// A helper function to calculate the head of the pointer. This is private and should not be utilized
+#define _nocc_darray_calculate_header(a) (_nocc_darray_header*)((uint8_t*)(a) - sizeof(_nocc_darray_header))
+
+void* _nocc_darray_resize(void* array, size_t new_size);
+
+void* _nocc_darray_reserve(size_t stride, size_t cap) {
+    size_t header_size = sizeof(_nocc_darray_header);
+    size_t body_size = cap * stride;
+    void* array = malloc(header_size + body_size);
+    _nocc_darray_header* header = array;
+    header->size = 0;
+    header->capacity = cap;
+    header->stride = stride;
+    return (void*)((uint8_t*)(array) + header_size);
+}
+
+void _nocc_darray_free(void* array) {
+    _nocc_darray_header* header = _nocc_darray_calculate_header(array);
+    free(header);
+}
+
+void* _nocc_darray_push(void* array, void* value) {
+    return _nocc_darray_pushn(array, 1, value);
+}
+
+void* _nocc_darray_pushn(void* array, size_t n, void* value) {
+    _nocc_darray_header* header = _nocc_darray_calculate_header(array);
+    if(header->size + n >= header->capacity) {
+        size_t new_cap = header->size + n > header->capacity * 2 ? header->capacity * 2 + n : header->capacity * 2;
+        array = _nocc_darray_resize(array, new_cap);
+    }
+    header = _nocc_darray_calculate_header(array);
+
+    uint64_t addr = (uint64_t)array;
+    memcpy(
+            (void*)(addr + (header->size * header->stride)),
+            value,
+            n * header->stride
+    );
+
+    header->size += n;
+    return array;
+}
+
+void* _nocc_darray_remove(void* array, size_t index, void* output_ptr) {
+    _nocc_darray_header* header = _nocc_darray_calculate_header(array);
+    
+    uint64_t addr = (uint64_t)array;
+    if(output_ptr != NULL) {
+        memcpy(output_ptr, (array + index), header->stride);
+    }
+
+    if(index != header->size - 1) {
+        memmove(
+            (void*)(addr + (index * header->stride)),
+            (void*)(addr + ((index + 1) * header->stride)),
+            header->stride * (header->size - (index - 1))
+        );
+    }
+
+    header->size--;
+    return array;
+}
+
+size_t _nocc_darray_size(void* array) {
+    _nocc_darray_header* header = _nocc_darray_calculate_header(array);
+    return header->size;
+}
+
+size_t _nocc_darray_capacity(void* array) {
+    _nocc_darray_header* header = _nocc_darray_calculate_header(array);
+    return header->capacity;
+}
+
+size_t _nocc_darray_stride(void* array) {
+    _nocc_darray_header* header = _nocc_darray_calculate_header(array);
+    return header->stride;
+}
+
+void* _nocc_darray_resize(void* array, size_t new_size) {
+    _nocc_darray_header* header = _nocc_darray_calculate_header(array);
+    size_t total_size = sizeof(_nocc_darray_header) + (new_size * header->stride);
+    void* temp = realloc((void*)header, total_size);
+    if(temp == NULL)
+        return NULL;
+    header = (_nocc_darray_header*)temp;
+    header->capacity = new_size;
+    return ((uint8_t*)temp + sizeof(_nocc_darray_header));
+}
+// Dynamic Array Implementation End
+
+// String Implementation Begin
+
+char* _nocc_string_resize(char*, size_t);
+
+typedef struct {
+    size_t size;
+    size_t capacity;
+} _nocc_string_header;
+
+#define _nocc_string_calculate_header(s)    (_nocc_string_header*)((uint8_t*)(s) - sizeof(_nocc_string_header))
+
+char* _nocc_string_reserve(size_t cap) {
+    size_t header_size = sizeof(_nocc_string_header);
+    size_t body_size = cap * sizeof(char);
+    char* str = malloc(header_size + body_size);
+
+    _nocc_string_header* header = (_nocc_string_header*)(void*)str;
+    header->size = 0;
+    header->capacity = cap;
+    return ((uint8_t*)(str) + sizeof(_nocc_string_header));
+}
+
+void _nocc_string_free(char* s) {
+    _nocc_string_header* header = _nocc_string_calculate_header(s);
+    free(header);
+}
+
+char* _nocc_string_pushc(nocc_string str, char c) {
+    _nocc_string_header* header = _nocc_string_calculate_header(str);
+    if(header->size >= header->capacity) {
+        str = _nocc_string_resize(str, header->capacity * 2);
+    }
+    header = _nocc_string_calculate_header(str);
+
+    str[header->size++] = c;
+
+    return str;
+}
+
+char* _nocc_string_push(nocc_string str, const char* cstr) {
+    _nocc_string_header* header = _nocc_string_calculate_header(str);
+    size_t n = strlen(cstr);
+    if(header->size + n >= header->capacity) {
+        size_t new_cap = header->size + n > header->capacity * 2 ? header->capacity * 2 + n : header->capacity * 2;
+        str = _nocc_string_resize(str, new_cap);
+    }
+    header = _nocc_string_calculate_header(str);
+
+    uint64_t addr = (uint64_t)str;
+    memcpy(
+            (void*)(addr + (header->size * sizeof(char))),
+            cstr,
+            n * sizeof(char)
+    );
+
+    header->size += n;
+    return str;
+}
+
+size_t _nocc_string_size(nocc_string str) {
+    _nocc_string_header* header = _nocc_string_calculate_header(str);
+    return str[header->size] == '\0' ? header->size - 1 : header->size;
+}
+
+size_t _nocc_string_capacity(nocc_string str) {
+    _nocc_string_header* header = _nocc_string_calculate_header(str);
+    return header->capacity;
+}
+
+char* _nocc_string_resize(char* str, size_t new_size) {
+    _nocc_string_header* header = _nocc_string_calculate_header(str);
+    size_t total_size = sizeof(_nocc_string_header) + (new_size * sizeof(char));
+    void* temp = realloc((void*)header, total_size);
+    if(temp == NULL)
+        return NULL;
+    header = (_nocc_string_header*)temp;
+    header->capacity = new_size;
+    return ((uint8_t*)temp + sizeof(_nocc_string_header));
+}
+// String Implementation End
+
+// File Functions Begin
+
+bool _nocc_platform_mkdir(const char* dirname) {
+    if(strcmp(dirname, ".") == 0) return true;
+    if(strcmp(dirname, "..") == 0) return true;
+
+#ifdef _WIN32
+    if(CreateDirectory(dirname, NULL) == FALSE) {
+        if(GetLastError() == ERROR_ALREADY_EXISTS) {
+            nocc_trace("Dir '%s' already exists", dirname); 
+            return true;
+        }
+        return false;
+    }
+    return true;
+#else
+    if(mkdir(dirname, 0x777) == -1) {
+        if(errno == EEXIST) {
+            nocc_trace("Dir '%s' already exists", dirname);
+            return true;
+        }
+        nocc_error("Failed to create dir %s: %s", dirname, strerror(errno));
+        return false;
+    }
+    return true;
+#endif // _WIN32
+}
+
+bool nocc_mkdir_if_not_exists(const char* dirname) {
+    const char* p;
+    char* temp;
+    bool ret = true;
+
+    temp = calloc(1, strlen(dirname) + 1);
+#ifdef _WIN32
+    if ((p = strchr(dirname, ':')) != NULL) {
+        p++;
+    } else {
+#endif
+        p = dirname;
+#ifdef _WIN32
+    }
+#endif
+
+    while((p = strchr(p, '/')) != NULL) {
+        if (p != dirname && *(p-1) == '/') {
+            p++;
+            continue;
+        }
+
+        memcpy(temp, dirname, p - dirname);
+        temp[p - dirname] = '\0';
+        p++;
+
+        if(!_nocc_platform_mkdir(temp)) {
+            ret = false;
+            goto failure;
+        }
+    }
+
+failure:
+    free(temp);
+    return ret;
+}
+
+bool _nocc_read_dir(const char *src_dir, const char *const filter, nocc_darray(const char*)* array_outp);
+char* _nocc_generate_object(const char* src_file, const char *const fmt, va_list args);
+char* _nocc_get_basename(const char* file);
+
+nocc_darray(const char*) nocc_read_dir(const char *const filter) {
+    nocc_darray(const char*) files = nocc_darray_create(const char*);
+    nocc_read_dir_i(filter, &files);
+    return files;
+}
+
+bool nocc_read_dir_i(const char *const filter, nocc_darray(const char*)* array_outp) {
+    char dir[MAX_PATH] = {0};
+    char* first_slash = strchr(filter, '/');
+    if(first_slash == NULL)
+        first_slash = (char*)filter;
+    memcpy(dir, filter, first_slash - filter);
+    _nocc_read_dir(dir, filter, array_outp);
+    return true;
+}
+
+bool _nocc_read_dir(const char *src_dir, const char *const filter, nocc_darray(const char*)* array_outp) {
+    DIR* dir = NULL;
+    struct dirent* ent = NULL;
+
+    dir = opendir(src_dir);
+    if(dir == NULL) {
+        nocc_error("Failed to open file %s: %s", ".", strerror);
+        return false;
+    }
+
+    errno = 0;
+    while((ent = readdir(dir)) != NULL) {
+        if(strcmp(ent->d_name, ".") == 0) continue;
+        if(strcmp(ent->d_name, "..") == 0) continue;
+
+        char* buffer;
+        asprintf(&buffer, "%s/%s", src_dir, ent->d_name);
+
+        nocc_file_type type = _nocc_get_file_type(buffer);
+        switch (type) {
+            case NOCC_FT_FILE:
+                if(fnmatch(filter, buffer, 0) == 0) {
+                    nocc_darray_push(*array_outp, strdup(buffer));
+                }
+                break;
+            case NOCC_FT_DIRECTORY:
+                _nocc_read_dir(buffer, filter, array_outp);
+            default:
+                break;
+        }
+
+        free(buffer);
+    }
+
+    if (errno != 0) {
+        nocc_error("Could not read directory %s: %s", src_dir, strerror(errno));
+        return false;
+    }
+
+    if(dir)
+        closedir(dir);
+    return true;
+}
+
+nocc_darray(const char*) nocc_generate_objects(nocc_darray(const char*) sources, const char *const fmt, ...) {
+    nocc_darray(const char*) objects = nocc_darray_reserve(const char*, nocc_darray_size(sources));
+    va_list args;
+    for(size_t i = 0; i < nocc_darray_size(sources); i++) {
+        va_list args2;
+        va_copy(args2, args);
+        va_start(args2, fmt);
+        nocc_string str = _nocc_generate_object(sources[i], fmt, args2);
+        nocc_darray_push(objects, str);
+        va_end(args2);
+    }
+    return objects;
+}
+
+nocc_string _nocc_generate_object(const char* src_file, const char *const fmt, va_list args) {
+    nocc_string result = nocc_string_reserve(strlen(fmt));
+    if(result == NULL)
+        return NULL;
+
+    for(const char* it = fmt; *it != '\0'; it++) {
+        if(*it != '%') {
+            nocc_string_pushc(result, *it);
+            continue;
+        }
+
+        it++;
+
+        switch (*it) {
+            case 'n':
+                char* basename = _nocc_get_basename(src_file);
+                nocc_string_push(result, basename);
+#ifdef _WIN32
+                free(basename);
+#endif
+                break;
+        }
+    }
+
+    nocc_string_push_null(result);
+    return result;
+}
+
+char* _nocc_get_basename(const char* path) {
+#ifdef _WIN32
+    // Find the last occurrence of '/'
+    const char* lastSlash = strrchr(path, '/');
+
+    // If '/' is found, start after it; otherwise, start from the beginning
+    const char* start = (lastSlash != NULL) ? lastSlash + 1 : path;
+
+    // Find the last occurrence of '.' in the remaining string
+    const char* lastDot = strrchr(start, '.');
+
+    // Calculate the length of the substring without the extension
+    size_t length = (lastDot != NULL) ? (size_t)(lastDot - start) : strlen(start);
+
+    // Allocate memory for the result and copy the substring
+    char* result = (char*)malloc(length + 1);
+    if (result == NULL) {
+        fprintf(stderr, "Memory allocation failed.\n");
+        exit(EXIT_FAILURE);
+    }
+
+    strncpy(result, start, length);
+    result[length] = '\0'; // Null-terminate the string
+
+    return result;
+#else
+    return basename(file);
+#endif // _WIN32
+}
+
+nocc_file_type _nocc_get_file_type(const char* filepath) {
+#ifdef _WIN32
+    DWORD attribute = GetFileAttributesA(filepath);
+    if(attribute == INVALID_FILE_ATTRIBUTES) {
+        nocc_error("Failed to get the file attribute %s: %S", filepath, GetLastError());
+        return NOCC_FT_UNKNOWN;
+    }
+
+    if(attribute & FILE_ATTRIBUTE_DIRECTORY) return NOCC_FT_DIRECTORY;
+    return NOCC_FT_FILE;
+#else
+    struct stat statbuf;
+    if (stat(path, &statbuf) < 0) {
+        nocc_log_error("Could not get stat of %s: %s", path, strerror(errno));
+        return -1;
+    }
+
+    switch (statbuf.st_mode & S_IFMT) {
+        case S_IFDIR:  return NOCC_FT_DIRECTORY;
+        case S_IFREG:  return NOCC_FT_FILE;
+        default:       return NOCC_FT_UNKNOWN;
+    }
+#endif
+}
+
+// fnmatch.h
+#ifdef _WIN32
+int fnmatch(const char *pattern, const char *string, int flags) {
+    return PathMatchSpecA(string, pattern) == TRUE ? 0 : 1;
+}
+#endif // _WIN32
+
+// dirent.h
+#ifdef _WIN32
+DIR* opendir(const char* name) {
+    char buffer[MAX_PATH];
+    snprintf(buffer, MAX_PATH, "%s\\*", name);
+
+    DIR* dir = (DIR*)calloc(1, sizeof(DIR));
+    
+    dir->hFind = FindFirstFile(buffer, &dir->data);
+    if(dir->hFind == INVALID_HANDLE_VALUE) {
+        errno = ENOSYS;
+        goto fail;
+    }
+
+    return dir;
+
+fail:
+    if(dir) {
+        free(dir);
+    }
+
+    return NULL;
+}
+
+struct dirent* readdir(DIR* dir) {
+    if(dir->dirent == NULL) {
+        dir->dirent = (struct dirent*)calloc(1, sizeof(struct dirent));
+    } else {
+        if(!FindNextFile(dir->hFind, &dir->data)) {
+            if(GetLastError() != ERROR_NO_MORE_FILES) {
+                errno = ENOSYS;
+            }
+
+            return NULL;
+        }
+    }
+
+    memset(dir->dirent->d_name, 0, sizeof(dir->dirent->d_name));
+
+    strncpy(dir->dirent->d_name, dir->data.cFileName, sizeof(dir->dirent->d_name) - 1);
+
+    return dir->dirent;
+}
+
+int closedir(DIR* dir) {
+    if(!FindClose(dir->hFind)) {
+        errno = ENOSYS;
+        return -1;
+    }
+
+    if(dir->dirent) {
+        free(dir->dirent);
+    }
+
+    free(dir);
+
+    return 0;
+}
+
+#endif // _WIN32
+// dirent.h
+
+// File Functions End
+
+// Command Implementation Begin
+
+void _nocc_cmd_pid_wait(pid pid);
+pid _nocc_cmd_run_command_async(nocc_command cmd);
+bool _nocc_should_recompile(const char** inputfiles, size_t inputfiles_count, nocc_darray(const char*) headerfiles, const char* outputfile);
+
+bool nocc_command_execute(nocc_command cmd) {
+    _nocc_cmd_pid_wait(_nocc_cmd_run_command_async(cmd));
+    return true;
+}
+
+bool nocc_should_recompile_many(nocc_darray(const char*) inputfiles, nocc_darray(const char*) headerfiles, const char* outputfile) {
+    return _nocc_should_recompile(inputfiles, nocc_darray_size(inputfiles), headerfiles, outputfile);
+}
+
+bool nocc_should_recompile(const char* inputfile, nocc_darray(const char*) headerfiles, const char* outputfile) {
+    return _nocc_should_recompile(&inputfile, 1, headerfiles, outputfile);
+}
+
+bool _nocc_should_recompile(const char** inputfiles, size_t inputfiles_count, nocc_darray(const char*) headerfiles, const char* outputfile) {
+#ifdef _WIN32
+    BOOL status;
+    
+    HANDLE output_file_fd = CreateFile(outputfile, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_READONLY, NULL);
+    if(output_file_fd == INVALID_HANDLE_VALUE) {
+        if(GetLastError() == ERROR_FILE_NOT_FOUND) return true;
+        nocc_error("File not found (%s)", outputfile);
+        return true;
+    }
+
+    FILETIME output_file_time;
+    status = GetFileTime(output_file_fd, NULL, NULL, &output_file_time);
+    CloseHandle(output_file_fd);
+    if(!status) { 
+        nocc_error("Could not obtain file time: %s (%s)", GetLastError(), outputfile);
+        return true;
+    }
+
+    for(size_t i = 0; i < inputfiles_count; i++) {
+        const char* inputfile = inputfiles[i];
+
+        HANDLE input_file_fd = CreateFile(inputfile, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_READONLY, NULL);
+        if(input_file_fd == INVALID_HANDLE_VALUE) {
+            if(GetLastError() == ERROR_FILE_NOT_FOUND) return true;
+            nocc_error("File not found (%s)", inputfile);
+            return true;
+        }
+
+        FILETIME input_file_time;
+        status = GetFileTime(input_file_fd, NULL, NULL, &input_file_time);
+        CloseHandle(input_file_fd);
+        if(!status) { 
+            nocc_error("Could not obtain file time: %s (%s)", GetLastError(), inputfile);
+            return true;
+        }
+
+        if(CompareFileTime(&input_file_time, &output_file_time) == 1) return true;
+    }
+
+    size_t header_files_size = headerfiles == NULL ? 0 : nocc_darray_size(headerfiles);
+    for(size_t i = 0; i < header_files_size; i++) {
+        const char* headerfile = headerfiles[i];
+
+        HANDLE header_file_fd = CreateFile(headerfile, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_READONLY, NULL);
+        if(header_file_fd == INVALID_HANDLE_VALUE) {
+            if(GetLastError() == ERROR_FILE_NOT_FOUND) return true;
+            nocc_error("File not found (%s)", headerfile);
+            return true;
+        }
+
+        FILETIME header_file_time;
+        status = GetFileTime(header_file_fd, NULL, NULL, &header_file_time);
+        CloseHandle(header_file_fd);
+        if(!status) { 
+            nocc_error("Could not obtain file time: %s (%s)", GetLastError(), headerfile);
+            return true;
+        }
+
+        if(CompareFileTime(&header_file_time, &output_file_time) == 1) return true;
+    }
+
+    return false;
+#else
+    // of course everything is easier on linux.
+    struct stat statbuf = {0};
+
+    if (stat(outputfile, &statbuf) < 0) {
+        // NOTE: if output does not exist it 100% must be rebuilt
+        if (errno == ENOENT) return true;
+        nocc_error("could not stat %s: %s", outputfile, strerror(errno));
+        return true;
+    }
+    int output_file_time = statbuf.st_mtime;
+
+    for (size_t i = 0; i < inputfiles_count; i++) {
+        const char *inputfile = inputfiles[i];
+        if (stat(inputfile, &statbuf) < 0) {
+            // NOTE: non-existing input is an error cause it is needed for building in the first place
+            nocc_error("could not stat %s: %s", inputfile, strerror(errno));
+            return true;
+        }
+        int input_file_time = statbuf.st_mtime;
+        // NOTE: if even a single inputfile is fresher than outputfile that's 100% rebuild
+        if (input_file_time > output_file_time) return 1;
+    }
+
+    size_t header_files_size = headerfiles == NULL ? 0 : nocc_darray_size(headerfiles);
+    for (size_t i = 0; i < header_files_size; i++) {
+        const char *headerfile = headerfiles[i];
+        if (stat(headerfile, &statbuf) < 0) {
+            // NOTE: non-existing input is an error cause it is needed for building in the first place
+            nocc_error("could not stat %s: %s", headerfile, strerror(errno));
+            return true;
+        }
+        int header_file_time = statbuf.st_mtime;
+        // NOTE: if even a single inputfile is fresher than outputfile that's 100% rebuild
+        if (header_file_time > output_file_time) return 1;
+    }
+
+    return 0;
+#endif // _WIN32
+}
 void _nocc_cmd_pid_wait(pid pid) {
 #ifdef _WIN32
     DWORD result = WaitForSingleObject(pid, INFINITE);
 
     if(result == WAIT_FAILED) {
-        nocc_assert(false, "Could not wait for child process %s", GetLastError());
+        nocc_error("Could not wait for child process %s", GetLastError());
         return;
     }
 
     DWORD exit_code;
     if(GetExitCodeProcess(pid, &exit_code) == 0) {
-        nocc_assert(false, "Could not get the exit code %lu", GetLastError());
+        nocc_error("Could not get the exit code %lu", GetLastError());
         return;
     }
 
     if(exit_code != 0) {
-        nocc_assert(false, "Exit code recieved %d", exit_code);
+        nocc_error("Exit code recieved %d", exit_code);
         return;
     }
 
@@ -734,14 +1032,14 @@ void _nocc_cmd_pid_wait(pid pid) {
     for(;;) {
         int wstatus = 0;
         if(waitpid(pid, &wstatus, 0) < 0) {
-            nocc_assert(false, "Could not wait for child process %s", strerror(errno));
+            nocc_error("Could not wait for child process %s", strerror(errno));
             return;
         }
 
         if(WIFEXITED(wstatus)) {
             int exit_code = WEXITSTATUS(wstatus);
             if (exit_status != 0) {
-                nocc_assert(false, "Exited with exit code %d", exit_status);
+                nocc_error("Exited with exit code %d", exit_status);
             }
 
             break;
@@ -749,19 +1047,22 @@ void _nocc_cmd_pid_wait(pid pid) {
     }
 
     if (WIFSIGNALED(wstatus)) {
-        nocc_assert(false, "command process was terminated by %s", strsignal(WTERMSIG(wstatus)));
+        nocc_error("command process was terminated by %s", strsignal(WTERMSIG(wstatus)));
     }
 #endif // _WIN32
 }
 
-pid _nocc_cmd_run_command_async(nocc_darray(const char*) cmd) {
+pid _nocc_cmd_run_command_async(nocc_command cmd) {
 #ifdef _WIN32
-    nocc_string built_command = nocc_str_create();
-    for(size_t i = 0; i < nocc_da_size(cmd); i++) {
-        nocc_str_push_cstr(built_command, cmd[i]);
-        nocc_str_push_char(built_command, ' ');
+    nocc_string built_command = nocc_string_create();
+    for(size_t i = 0; i < nocc_darray_size(cmd); i++) {
+        nocc_debug("%s", cmd[i]);
+        nocc_string_push(built_command, cmd[i]);
+        nocc_string_pushc(built_command, ' ');
     }
-    nocc_str_push_null(built_command);
+    nocc_string_push_null(built_command);
+
+    nocc_trace(built_command);
 
     STARTUPINFO siStartInfo;
     ZeroMemory(&siStartInfo, sizeof(siStartInfo));
@@ -793,24 +1094,24 @@ pid _nocc_cmd_run_command_async(nocc_darray(const char*) cmd) {
 
     if (!bSuccess) {
         // TODO: Improve error handling
-        nocc_assert(false, "Failed to fork child process");
+        nocc_error("Failed to fork child process");
         return NULL;
     }
 
     CloseHandle(piProcInfo.hThread);
 
-    nocc_str_free(built_command);
+    nocc_string_free(built_command);
     return piProcInfo.hProcess;
 #else // ifndef _WIN32
     pid_t cpid = fork();
     if(cpid == -1) {
-        nocc_assert(false, "Failed to fork child process %s", strerror(errno));
+        nocc_error("Failed to fork child process %s", strerror(errno));
         return -1;
     }
 
     if(cpid == 0) {
         if(execvp(cmd[i], cmd + 1) == -1) {
-            nocc_assert(false, "Failed to execute cmd %s", strerror(errno));
+            nocc_error("Failed to execute cmd %s", strerror(errno));
             return -1;
         }
     }
@@ -820,532 +1121,66 @@ pid _nocc_cmd_run_command_async(nocc_darray(const char*) cmd) {
 #endif // _WIN32
 }
 
-bool nocc_cmd_execute(nocc_darray(const char*) cmd) {
-    _nocc_cmd_pid_wait(_nocc_cmd_run_command_async(cmd));
-    return true;
-}
+nocc_darray(const char*) nocc_compile(nocc_compilation_options opts) {
+    nocc_darray(const char*) srcs = nocc_read_dir(opts.src_filter);
+    nocc_darray(const char*) incs = nocc_read_dir(opts.inc_filter);
+    nocc_darray(const char*) objs = nocc_generate_objects(srcs, opts.obj_format);
 
-/**
- * @brief determines whether the file should be recompiled or not.
- * 
- * @param {const char**} inputfiles -- an array (or pointer to) a filename
- * @param {size_t} input_files_size -- the length of the input files array (or 1) if it is a pointer.
- * @param {const char*} outputfile  -- the name of the target file 
- * 
- * @return {bool} return's true, if needs to rebuild 
-*/
-bool nocc_should_recompile(const char** inputfiles, size_t input_files_size, const char* outputfile) {
-#ifdef _WIN32
-    BOOL status;
-    
-    HANDLE output_file_fd = CreateFile(outputfile, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_READONLY, NULL);
-    if(output_file_fd == INVALID_HANDLE_VALUE) {
-        if(GetLastError() == ERROR_FILE_NOT_FOUND) return true;
-        nocc_error("File not found (%s)", outputfile);
-        return true;
-    }
-
-    FILETIME output_file_time;
-    status = GetFileTime(output_file_fd, NULL, NULL, &output_file_time);
-    CloseHandle(output_file_fd);
-    if(!status) { 
-        nocc_error("Could not obtain file time: %s (%s)", GetLastError(), outputfile);
-        return true;
-    }
-
-    for(size_t i = 0; i < input_files_size; i++) {
-        const char* inputfile = inputfiles[i];
-
-        HANDLE input_file_fd = CreateFile(inputfile, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_READONLY, NULL);
-        if(input_file_fd == INVALID_HANDLE_VALUE) {
-            if(GetLastError() == ERROR_FILE_NOT_FOUND) return true;
-            nocc_error("File not found (%s)", inputfile);
-            return true;
-        }
-
-        FILETIME input_file_time;
-        status = GetFileTime(input_file_fd, NULL, NULL, &input_file_time);
-        CloseHandle(input_file_fd);
-        if(!status) { 
-            nocc_error("Could not obtain file time: %s (%s)", GetLastError(), inputfile);
-            return true;
-        }
-
-        if(CompareFileTime(&input_file_time, &output_file_time) == 1) return true;
-    }
-
-    return false;
-#else
-    // of course everything is easier on linux.
-    struct stat statbuf = {0};
-
-    if (stat(outputfile, &statbuf) < 0) {
-        // NOTE: if output does not exist it 100% must be rebuilt
-        if (errno == ENOENT) return true;
-        nocc_error("could not stat %s: %s", outputfile, strerror(errno));
-        return true;
-    }
-    int output_file_time = statbuf.st_mtime;
-
-    for (size_t i = 0; i < input_files_size; ++i) {
-        const char *inputfile = inputfiles[i];
-        if (stat(inputfile, &statbuf) < 0) {
-            // NOTE: non-existing input is an error cause it is needed for building in the first place
-            nocc_error("could not stat %s: %s", inputfile, strerror(errno));
-            return true;
-        }
-        int input_file_time = statbuf.st_mtime;
-        // NOTE: if even a single inputfile is fresher than outputfile that's 100% rebuild
-        if (input_file_time > output_file_time) return 1;
-    }
-
-    return 0;
-#endif // _WIN32
-}
-
-bool nocc_should_recompile1(const char* inputfile, const char* outputfile) {
-    return nocc_should_recompile(&inputfile, 1, outputfile);
-}
-
-// Command Ends
-
-// IMPLEMENTATION OF EXTERNAL FUNCTIONS ARE HERE
-
-#define _NOCC_USE_ARRAY_IMPLEMENTATION 1
-#if _NOCC_USE_ARRAY_IMPLEMENTATION
-void* _nocc_da_reserve(size_t stride, size_t cap) {
-    size_t header_size = sizeof(_nocc_da_header);
-    size_t body_size = cap * stride;
-    
-    void* array = calloc(1, header_size + body_size);
-    nocc_assert(array, "Failed to create an array");
-
-    _nocc_da_header* header = array;
-    header->capacity = cap;
-    header->size = 0;
-    header->stride = stride;
-    
-    return (void*)((uint8_t*)array + header_size); 
-}
-
-void _nocc_da_free(void* array) {
-    _nocc_da_header* header = _nocc_da_calc_header(array);
-    free(header);
-
-}
-
-void* _nocc_da_push(void* array, void* value) {
-    nocc_assert(array, "Please enter a valid array");
-    nocc_assert(value, "Please enter a valid value (entered NULL)");
-
-    _nocc_da_header* header = _nocc_da_calc_header(array);
-    if(header->size >= header->capacity)
-        array = _nocc_da_grow(array, header->capacity * 2);
-
-    header = _nocc_da_calc_header(array);
-    
-    uint64_t addr = (uint64_t)array;
-    addr += (header->size * header->stride);
-    memcpy((void*)addr, value, header->stride);
-
-    header->size++;
-
-    return array;
-}
-
-void* _nocc_da_pushn(void* array, size_t n, void* value) {
-    nocc_assert(array, "Please enter a valid array");
-    nocc_assert(value, "Please enter a valid value (entered NULL)");
-    nocc_assert(n > 0, "Please enter a valid value (entered NULL)");
-
-    _nocc_da_header* header = _nocc_da_calc_header(array);
-    if(header->size + n >= header->capacity)
-        array = _nocc_da_grow(array, (header->capacity * 2) + n);
-    
-    header = _nocc_da_calc_header(array);
-    
-    uint64_t addr = (uint64_t)array;
-    addr += (header->size * header->stride);
-    memcpy((void*)addr, value, n * header->stride);
-
-    header->size += n;
-    return array;
-}
-
-void* _nocc_da_grow(void* array, size_t new_capacity) {
-    nocc_assert(array, "Please enter a valid array");
-    _nocc_da_header* header = _nocc_da_calc_header(array);
-    size_t stride = header->stride;
-    size_t header_size = sizeof(_nocc_da_header); 
-    size_t total_size = header_size + (stride * new_capacity);
-    header->capacity = new_capacity;
-
-    void* temp = realloc(header, total_size);
-    nocc_assert(temp, "Failed to reallocate array");
-
-
-   return (void*)((uint8_t*)temp + header_size); 
-}
-
-void* _nocc_da_remove(void* array, size_t index, void* output_ptr) {
-    nocc_assert(array, "Please enter a valid array");
-    nocc_assert(index >= 0 && index < nocc_da_size(array));
-    _nocc_da_header* header = _nocc_da_calc_header(array);
-    
-    uint64_t addr = (uint64_t)array;
-    if(output_ptr != NULL) {
-        memcpy(output_ptr, (array + index), header->stride);
-    }
-
-    if(index != header->size - 1) {
-        memmove(
-            (void*)(addr + (index * header->stride)),
-            (void*)(addr + ((index + 1) * header->stride)),
-            header->stride * (header->size - (index - 1))
-        );
-    }
-
-    header->size--;
-    return array;
-}
-
-size_t _nocc_da_size(void* array) {
-    nocc_assert(array, "Please enter a valid array");
-    _nocc_da_header* header = _nocc_da_calc_header(array);
-    return header->size;
-}
-
-size_t _nocc_da_capacity(void* array) {
-    nocc_assert(array, "Please enter a valid array");
-    _nocc_da_header* header = _nocc_da_calc_header(array);
-    return header->capacity;
-}
-
-size_t _nocc_da_stride(void* array) {
-    nocc_assert(array, "Please enter a valid array");
-    _nocc_da_header* header = _nocc_da_calc_header(array);
-    return header->stride;
-}
-#endif // _NOCC_USE_ARRAY_IMPLEMENTATION
-
-// ARGPARSE IMPLEMENTATION BEGIN
-
-bool _nocc_ap_parse_rec(nocc_argparse_opt* command, int beg, nocc_darray(char*) args) {
-    nocc_assert(command, "command cannot be NULL");
-    nocc_assert(args, "argv cannot be NULL");
-
-    while(nocc_da_size(args) != 0) {
-        char* arg = args[0];
-
-        if (command->_kind != NOCC_APK_COMMAND) {
-            nocc_assert(false, "Unknown argparse kind");
-            return false;
-        } 
-        
-        if(command->commands) {
-            nocc_argparse_opt cmd;
-            for(size_t i = 0; i < command->commands_size; i++) {
-                cmd = command->commands[i];
-
-                if(strcmp(cmd.name, arg) != 0)
-                    continue;
-                
-                *(bool*)(cmd.output_ptr) = true;
-                nocc_da_remove(args, beg, NULL);
-                return _nocc_ap_parse_rec(&cmd, beg, args);
-            }
-        }
-
-        if(_nocc_ap_parse_option(command, beg, args, arg)) {
-            goto next_iteration;
-        }
-
-        _nocc_ap_parse_argument(command, beg, args, arg);
-
-    next_iteration:
-        continue;
-    }
-
-    _nocc_ap_set_default(command);
-
-    return true;
-}
-
-bool _nocc_ap_find_if_is_long(char c) {
-    return c == '-';
-}
-
-bool _nocc_ap_get_option_status(nocc_argparse_opt* opt, bool is_long, char* arg) {
-    if(is_long == false) {
-        if(opt->short_name != arg[1]) {
-            return false;
-        }
-    } else {
-        if(strcmp(opt->name, arg + 2) != 0) {
-            return false;
-        } 
-    }
-    
-    return true;
-}
-
-bool _nocc_ap_parse_option(nocc_argparse_opt* command, int beg, nocc_darray(char*) args, char* arg) {
-    if(command->options == NULL) return false;
-    if(arg[0] != '-') return false;
-    
-    for(size_t i = 0; i < command->options_size; i++) {
-        nocc_argparse_opt opt = command->options[i];
-        bool is_long = _nocc_ap_find_if_is_long(arg[1]);
-
-        switch (opt._type)
-        {
-        case NOCC_APT_BOOLEAN: {
-            bool status = _nocc_ap_get_option_status(&opt, is_long, arg);
-            if(!status)
-                break;
-            *(bool*)(opt.output_ptr) = true;
-            nocc_da_remove(args, beg, NULL);
-            return true;
-
-        } break;
-        case NOCC_APT_SWITCH: {
-            // switch has suboptions
-            for(size_t i = 0; i < opt._length_children; i++) {
-                bool status = _nocc_ap_get_option_status(&(opt._children[i]), is_long, arg);
-                if(!status)
-                    continue;
-                *(char**)(opt.output_ptr) = opt._children[i].name;
-                nocc_da_remove(args, beg, NULL);
-                return true;
-            }
-        } break;
-        default:
-            break;
-        }
-    }
-
-    return false;
-}
-
-bool _nocc_ap_parse_argument(nocc_argparse_opt* command, int beg, nocc_darray(char*) args, char* arg) {
-    if(command->arguments == NULL) return false;
-
-    for(size_t i = 0; i < command->arguments_size; i++) {
-        nocc_argparse_opt argument = command->arguments[i];
-
-        *(char**)(argument.output_ptr) = arg;
-        nocc_da_remove(args, beg, NULL);
-        return true;
-    }
-
-    return false;
-}
-
-void _nocc_ap_set_default_option(nocc_argparse_opt* command) {
-    if(command->options == NULL) return;
-
-    for(size_t i = 0; i < command->options_size; i++) {
-        nocc_argparse_opt opt = command->options[i];
-        
-        if(opt.default_ == NULL)
+    for(size_t i = 0; i < nocc_darray_size(srcs); i++) {
+        if(!nocc_should_recompile(srcs[i], incs, objs[i]))
             continue;
 
-        switch (opt._type)
-        {
-        case NOCC_APT_BOOLEAN:
-            if(opt.output_ptr != NULL)
-                break;
-            *(bool*)opt.output_ptr = *(bool*)opt.default_;
-            break;
+        nocc_command command = nocc_command_create();
+        nocc_command_add(command, opts.cc, "-c", srcs[i]);
+        if(opts.cflags != NULL)
+            nocc_command_add(command, opts.cflags);
+        if(opts.includes != NULL)
+            nocc_command_add(command, opts.includes);
+        if(opts.defines != NULL)
+            nocc_command_add(command, opts.defines);
+        nocc_command_add(command, "-o", objs[i]);
 
-        case NOCC_APT_STRING:
-        case NOCC_APT_SWITCH:
-            if(*(char**)opt.output_ptr != NULL)
-                break;
-            *(char**)opt.output_ptr = (char*)opt.default_;
-            break;
-        
-        case NOCC_APT_FLOAT:
-        case NOCC_APT_NUMBER:
-        case NOCC_APT_UNKNOWN:
-        case NOCC_APT_ARRAY:
-        default:
-            nocc_assert(false, "Unknown type");
-            break;
+        nocc_command_execute(command);
+
+        nocc_command_free(command);
+    }
+
+    for(size_t i = 0; i < nocc_darray_size(srcs); i++) {
+        free((char*)srcs[i]);
+    }
+    nocc_darray_free(srcs);
+    for(size_t i = 0; i < nocc_darray_size(incs); i++) {
+        free((char*)incs[i]);
+    }
+    nocc_darray_free(incs);
+
+    return objs;
+}
+
+bool nocc_link(nocc_link_options opts) {
+    if(nocc_should_recompile_many(opts.objs, NULL, opts.target)) {
+        nocc_command command = nocc_command_create();
+        nocc_command_add(command, opts.ld);
+        if(opts.ldflags != NULL) {
+            nocc_command_add(command, opts.ldflags);
         }
-    }
-
-}
-
-void _nocc_ap_set_default_argument(nocc_argparse_opt* command) {
-    if(command->arguments == NULL) return;
-
-    for(size_t i = 0; i < command->arguments_size; i++) {
-        nocc_argparse_opt arg = command->arguments[i];
-        if(*(char**)arg.output_ptr == NULL && arg.default_) {
-            *(char**)(arg.output_ptr) = arg.default_;
+        nocc_command_add(command, "-o", opts.target);
+        nocc_command_addn(command, nocc_darray_size(opts.objs), opts.objs);
+        if(opts.ldadd) {
+            nocc_command_add(command, opts.ldadd);
         }
+
+        nocc_command_execute(command);
+        nocc_command_free(command);
     }
-}
-
-void _nocc_ap_set_default(nocc_argparse_opt* command) {
-    _nocc_ap_set_default_option(command);
-    _nocc_ap_set_default_argument(command);
-}
-
-// END ARGPARSE IMPLEMENTATION BEGIN
-
-// FILE IMPLEMENTATION 
-
-nocc_file_type _nocc_get_file_type(const char* filepath) {
-#ifdef _WIN32
-    DWORD attribute = GetFileAttributesA(filepath);
-    if(attribute == INVALID_FILE_ATTRIBUTES) {
-        nocc_error("Failed to get the file attribute %s: %S", filepath, GetLastError());
-        return NOCC_FT_UNKNOWN;
+    for(size_t i = 0; i < nocc_darray_size(opts.objs); i++) {
+        free((char*)opts.objs[i]);
     }
-
-    if(attribute & FILE_ATTRIBUTE_DIRECTORY) return NOCC_FT_DIRECTORY;
-    return NOCC_FT_FILE;
-#else
-    struct stat statbuf;
-    if (stat(path, &statbuf) < 0) {
-        nocc_log_error("Could not get stat of %s: %s", path, strerror(errno));
-        return -1;
-    }
-
-    switch (statbuf.st_mode & S_IFMT) {
-        case S_IFDIR:  return NOCC_FT_DIRECTORY;
-        case S_IFREG:  return NOCC_FT_FILE;
-        default:       return NOCC_FT_UNKNOWN;
-    }
-#endif
-}
-
-bool _nocc_read_dir_single_dir(const char* src_dir, const char*** files) {
-    DIR* dir = NULL;
-
-    dir = opendir(src_dir);
-    if(dir == NULL) {
-        nocc_error("Failed to open file %s: %s", src_dir, strerror(errno));
-        return false;
-    }
-
-    errno = 0;
-    struct dirent* ent = readdir(dir);
-    while(ent != NULL) {
-        nocc_da_push(*files, strdup(ent->d_name));
-        ent = readdir(dir);
-    }
-
-    if (errno != 0) {
-        nocc_error("Could not read directory %s: %s", src_dir, strerror(errno));
-    }
-
-    if(dir)
-        closedir(dir);
+    nocc_darray_free(opts.objs);
     return true;
 }
 
-char* _nocc_get_basename(const char* dir, char* output) {
-#ifdef _WIN32
-    return basename(dir, output);
-#else
-    return basename(dir);
-#endif
-}
+// Command Implementation End
 
-/**
- * DIRENT.H
-*/
-#ifdef _WIN32
-int closedir(DIR* dir) {
-    nocc_assert(dir, "Please pass a valid dir object");
 
-    if(!FindClose(dir->hFind)) {
-        errno = ENOSYS;
-        return -1;
-    }
-
-    if(dir->dirent) {
-        free(dir->dirent);
-    }
-
-    free(dir);
-
-    return 0;
-}
-
-DIR* opendir(const char* name) {
-    nocc_assert(name, "name cannot be null");
-
-    char buffer[MAX_PATH];
-    snprintf(buffer, MAX_PATH, "%s\\*", name);
-
-    DIR* dir = (DIR*)calloc(1, sizeof(DIR));
-    
-    dir->hFind = FindFirstFile(buffer, &dir->data);
-    if(dir->hFind == INVALID_HANDLE_VALUE) {
-        errno = ENOSYS;
-        goto fail;
-    }
-
-    return dir;
-
-fail:
-    if(dir) {
-        free(dir);
-    }
-
-    return NULL;
-}
-
-struct dirent* readdir(DIR* dir) {
-    nocc_assert(dir, "Please pass a valid dir object");
-
-    if(dir->dirent == NULL) {
-        dir->dirent = (struct dirent*)calloc(1, sizeof(struct dirent));
-    } else {
-        if(!FindNextFile(dir->hFind, &dir->data)) {
-            if(GetLastError() != ERROR_NO_MORE_FILES) {
-                errno = ENOSYS;
-            }
-
-            return NULL;
-        }
-    }
-
-    memset(dir->dirent->d_name, 0, sizeof(dir->dirent->d_name));
-
-    strncpy(dir->dirent->d_name, dir->data.cFileName, sizeof(dir->dirent->d_name) - 1);
-
-    return dir->dirent;
-}
-
-// ./some/random/filepath.c -> file
-char *basename(const char* path, char* basename_out) {
-    if(path == NULL) return NULL;
-
-    size_t size = strlen(path);
-    size_t index_of_first_dot = size;
-    size_t i = (path[0] == '.' && path[1] == '/') ? 2 : 0;
-    size_t index_of_last_slash = i;
-    
-    for(; i < size; i++) {
-        char c = path[i];
-        if(c == '/' && index_of_last_slash < index_of_first_dot)
-            index_of_last_slash = i;
-        if(c == '.' && i < index_of_first_dot)
-            index_of_first_dot = i;
-    }
-
-    memcpy(basename_out, path + index_of_last_slash, index_of_first_dot - index_of_last_slash);
-
-    basename_out[index_of_first_dot - index_of_last_slash] = '\0';
-
-    return basename_out;
-}
-
-#endif // _WIN32
-
-#endif // _NO_C_COMPILER
+#endif // _NOCC_H_
