@@ -1,3 +1,4 @@
 #pragma once
 
-int print(const char *const fmt, ...);
+void print_hello();
+
